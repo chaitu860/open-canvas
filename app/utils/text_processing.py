@@ -11,7 +11,7 @@ from typing import List, Union, Sequence
 # A more robust version might be needed if other content types are used.
 from langchain_core.messages import BaseMessage
 from typing import Dict # Added Dict
-from app.utils.langchain_helpers import THINKING_MODELS # Import the list
+from utils.langchain_helpers import THINKING_MODELS # Import the list
 
 
 def get_string_from_content(content: Union[str, Sequence[Union[str, dict]]]) -> str:

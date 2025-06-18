@@ -1,7 +1,7 @@
 # app/agents/reducers.py
 from typing import List, Optional, Union, Any
 from langchain_core.messages import BaseMessage
-from app.schemas.common import OC_SUMMARIZED_MESSAGE_KEY, OC_HIDE_FROM_UI_KEY # Import keys
+from schemas.common import OC_SUMMARIZED_MESSAGE_KEY, OC_HIDE_FROM_UI_KEY # Import keys
 
 def update_internal_messages(
     left: Optional[List[BaseMessage]],

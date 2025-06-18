@@ -1,7 +1,7 @@
 # app/agents/nodes/generate_artifact_helpers/schemas.py
 from typing import Optional
 from langchain_core.pydantic_v1 import BaseModel, Field
-from app.schemas.common import ProgrammingLanguageOptions, ArtifactType
+from schemas.common import ProgrammingLanguageOptions, ArtifactType
 
 class ArtifactToolSchema(BaseModel):
     type: ArtifactType = Field(..., description="The content type of the artifact generated (e.g., 'text', 'code').")

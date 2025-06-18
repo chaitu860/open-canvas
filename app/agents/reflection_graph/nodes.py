@@ -9,9 +9,9 @@ from .state import ReflectionGraphState
 from .schemas import GenerateReflectionsToolSchema, ReflectionsData
 from .prompts import REFLECT_SYSTEM_PROMPT, REFLECT_USER_PROMPT
 
-from app.utils.langchain_helpers import get_artifact_content
-from app.schemas.common import ArtifactType
-from app.utils.text_processing import get_string_from_content
+from utils.langchain_helpers import get_artifact_content
+from schemas.common import ArtifactType
+from utils.text_processing import get_string_from_content
 
 
 # Placeholder for formatReflections from app/utils.ts
@@ -141,5 +141,5 @@ async def reflect_node_internal(state: ReflectionGraphState, config: Optional[Di
     # This node's primary job is to update the external store (reflections).
     # It does not modify its own graph's state to be passed to other nodes within ReflectionGraphState.
     return {}
-from app.schemas.common import ArtifactType # ensure imported for nodes.py
-from app.utils.text_processing import get_string_from_content # ensure imported for nodes.py
+from schemas.common import ArtifactType # ensure imported for nodes.py
+from utils.text_processing import get_string_from_content # ensure imported for nodes.py

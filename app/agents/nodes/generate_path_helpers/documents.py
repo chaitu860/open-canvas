@@ -5,13 +5,13 @@ from typing import List, Optional, Tuple, Union, Any, Dict
 from langchain_core.messages import BaseMessage, HumanMessage # type: ignore
 # from langchain_core.messages import AIMessage, SystemMessage, ToolMessage # Add if needed
 
-from app.utils.langchain_helpers import (
+from utils.langchain_helpers import (
     create_context_document_messages,
     get_model_config,
     convert_pdf_to_text, # This is synchronous
     ContextDocument,
 )
-from app.utils.text_processing import get_string_from_content # For processing message content
+from utils.text_processing import get_string_from_content # For processing message content
 
 OC_HIDE_FROM_UI_KEY = "oc_hide_from_ui"
 

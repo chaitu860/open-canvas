@@ -5,7 +5,7 @@ from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage # t
 from langchain_anthropic import ChatAnthropic
 
 from .prompts import SUMMARIZER_PROMPT
-from app.utils.text_processing import get_string_from_content
+from utils.text_processing import get_string_from_content
 
 # OC_SUMMARIZED_MESSAGE_KEY from shared constants.
 # Define here for now; move to a central constants file (e.g., app/schemas/common.py or app/constants.py) later.

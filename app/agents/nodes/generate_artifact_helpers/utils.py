@@ -1,8 +1,8 @@
 # app/agents/nodes/generate_artifact_helpers/utils.py
 from typing import Union # Ensure Union is imported
 
-from app.agents.prompts import NEW_ARTIFACT_PROMPT
-from app.schemas.common import ArtifactCodeV3, ArtifactMarkdownV3, ProgrammingLanguageOptions, ArtifactType
+from agents.prompts import NEW_ARTIFACT_PROMPT
+from schemas.common import ArtifactCodeV3, ArtifactMarkdownV3, ProgrammingLanguageOptions, ArtifactType
 from .schemas import ArtifactToolSchema # Local import for ArtifactToolSchema
 
 def format_new_artifact_prompt(memories_as_string: str, model_name: str) -> str:

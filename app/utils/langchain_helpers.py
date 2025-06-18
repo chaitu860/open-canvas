@@ -12,7 +12,7 @@ from langchain_anthropic import ChatAnthropic
 # from langchain_community.chat_models import ChatFireworks, ChatGroq # Example for later
 # from langchain_community.chat_models.ollama import ChatOllama # Example for later
 
-from app.schemas.common import ArtifactV3, ArtifactCodeV3, ArtifactMarkdownV3, ArtifactType, ProgrammingLanguageOptions, SearchResult
+from schemas.common import ArtifactV3, ArtifactCodeV3, ArtifactMarkdownV3, ArtifactType, ProgrammingLanguageOptions, SearchResult
 
 
 # --- Constants (Ported from @opencanvas/shared/models.ts) ---

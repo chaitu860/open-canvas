@@ -1,7 +1,7 @@
 # app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware # Added
-from app.api.agent import router as agent_router
+from api.agent import router as agent_router
 
 app = FastAPI(title="LangGraph Agent Server - Python Edition")
 

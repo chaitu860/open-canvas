@@ -1,6 +1,6 @@
 # app/api/agent.py
 from fastapi import APIRouter, HTTPException, Path, Body
-from app.schemas.agent import (
+from schemas.agent import (
     AgentInvokeRequest,
     AgentInvokeResponse,
     AgentStatus,
@@ -12,7 +12,7 @@ from app.schemas.agent import (
 )
 from typing import Any, Dict, Optional
 import uuid
-from app.services.agent_service import AgentService # Import AgentService
+from services.agent_service import AgentService # Import AgentService
 from fastapi.responses import StreamingResponse
 import json # For SSE streaming
 from langchain_core.messages import HumanMessage # To create initial message for graph

@@ -9,9 +9,9 @@ from .state import TitleGenerationState
 from .schemas import GenerateTitleToolSchema
 from .prompts import TITLE_SYSTEM_PROMPT, TITLE_USER_PROMPT
 
-from app.utils.langchain_helpers import get_artifact_content
-from app.schemas.common import ArtifactType # For checking artifact type
-from app.utils.text_processing import get_string_from_content # For formatting messages
+from utils.langchain_helpers import get_artifact_content
+from schemas.common import ArtifactType # For checking artifact type
+from utils.text_processing import get_string_from_content # For formatting messages
 
 async def generate_title_internal(state: TitleGenerationState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     print("Executing Internal Title Generation Node (`generate_title_internal`)")
@@ -73,7 +73,7 @@ async def generate_title_internal(state: TitleGenerationState, config: Optional[
 
     tool_args_dict = None
     if llm_result.tool_calls and llm_result.tool_calls[0].get("name") == "generate_title":
-        raw_args = ll_result.tool_calls[0].get("args")
+        raw_args = llm_result.tool_calls[0].get("args")
         if isinstance(raw_args, dict):
             tool_args_dict = raw_args
         elif isinstance(raw_args, str):
@@ -107,5 +107,5 @@ async def generate_title_internal(state: TitleGenerationState, config: Optional[
     return {}
 
 # Ensure all necessary types are available in this file's scope
-from app.schemas.common import ArtifactType
-from app.utils.text_processing import get_string_from_content
+from schemas.common import ArtifactType
+from utils.text_processing import get_string_from_content

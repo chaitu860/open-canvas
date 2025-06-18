@@ -3,45 +3,49 @@ import inspect # For placeholder_node name
 import copy # For deepcopy in clean_state_node
 
 from langgraph.graph import StateGraph, END, START
+
+from schemas.common import ArtifactLengthOptions, CustomQuickAction, LanguageOptions, ReadingLevelOptions
+from utils.langchain_helpers import is_artifact_code_content
 # from langgraph.checkpoint.sqlite import SqliteSaver # Example checkpointer
 from .state import OpenCanvasState
 from typing import Dict, Any, Literal, Optional, List, Union
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage # type: ignore
 
-from app.utils.text_processing import get_string_from_content, extract_urls
-from app.agents.nodes.generate_path_helpers.documents import (
+from utils.text_processing import get_string_from_content, extract_urls
+from agents.nodes.generate_path_helpers.documents import (
     convert_context_document_to_human_message,
     fix_misformatted_context_doc_message,
     RemoveMessage
 )
-from app.agents.nodes.generate_path_helpers.include_url_contents import include_url_contents_func
-from app.agents.nodes.generate_path_helpers.dynamic_determine_path import dynamic_determine_path_func
-    from app.utils.langchain_helpers import ( # Added for reply_to_general_input
-        get_model_from_config,
-        get_artifact_content,
-        format_artifact_content_with_template,
-        create_context_document_messages,
-        is_using_o1_mini_model,
-        # format_reflections, # Needs porting if reflections store is used
-    )
-    from app.agents.prompts import CURRENT_ARTIFACT_PROMPT, NO_ARTIFACT_PROMPT # Added
-    # Imports for generate_artifact (already present from previous step, ensure they are correctly placed)
-    from app.agents.nodes.generate_artifact_helpers.schemas import ArtifactToolSchema
-    from app.agents.nodes.generate_artifact_helpers.utils import format_new_artifact_prompt, create_artifact_content
-    from app.schemas.common import ArtifactV3, ArtifactType, ArtifactMarkdownV3, ArtifactCodeV3, ProgrammingLanguageOptions
+from agents.nodes.generate_path_helpers.include_url_contents import include_url_contents_func
+from agents.nodes.generate_path_helpers.dynamic_determine_path import dynamic_determine_path_func
+from agents.nodes.rewrite_artifact_helpers.utils import CreateNewArtifactContentArgs
+from utils.langchain_helpers import ( # Added for reply_to_general_input
+    get_model_from_config,
+    get_artifact_content,
+    format_artifact_content_with_template,
+    create_context_document_messages,
+    is_using_o1_mini_model,
+    # format_reflections, # Needs porting if reflections store is used
+)
+from agents.prompts import CURRENT_ARTIFACT_PROMPT, NO_ARTIFACT_PROMPT # Added
+# Imports for generate_artifact (already present from previous step, ensure they are correctly placed)
+from agents.nodes.generate_artifact_helpers.schemas import ArtifactToolSchema
+from agents.nodes.generate_artifact_helpers.utils import format_new_artifact_prompt, create_artifact_content
+from schemas.common import ArtifactV3, ArtifactType, ArtifactMarkdownV3, ArtifactCodeV3, ProgrammingLanguageOptions
 
-    # Imports for rewrite_artifact
-    from app.agents.nodes.rewrite_artifact_helpers.schemas import OptionallyUpdateArtifactMetaSchema
-    from app.agents.nodes.rewrite_artifact_helpers.update_meta import optionally_update_artifact_meta
-    from app.agents.nodes.rewrite_artifact_helpers.utils import (
-        validate_state as validate_rewrite_state,
-        build_prompt as build_rewrite_prompt,
-        create_new_artifact_content as create_new_rewrite_artifact_content # Aliased
-    )
-    from app.utils.text_processing import is_thinking_model, extract_thinking_and_response_tokens # Added
-    from app.utils.langchain_helpers import get_model_config # ensure get_model_config is available
-    import uuid # Added for thinking message ID
+# Imports for rewrite_artifact
+from agents.nodes.rewrite_artifact_helpers.schemas import OptionallyUpdateArtifactMetaSchema
+from agents.nodes.rewrite_artifact_helpers.update_meta import optionally_update_artifact_meta
+from agents.nodes.rewrite_artifact_helpers.utils import (
+    validate_state as validate_rewrite_state,
+    build_prompt as build_rewrite_prompt,
+    create_new_artifact_content as create_new_rewrite_artifact_content # Aliased
+)
+# from utils.text_processing import is_thinking_model, extract_thinking_and_response_tokens # Added
+from utils.langchain_helpers import get_model_config # ensure get_model_config is available
+import uuid # Added for thinking message ID
 
 
 # Placeholder for DEFAULT_INPUTS equivalent in Python
@@ -500,15 +504,15 @@ async def rewrite_artifact(state: OpenCanvasState, config: Optional[Dict[str, An
         actual_artifact_text_response = str(actual_artifact_text_response)
 
     thinking_message_for_state: Optional[AIMessage] = None
-    if is_thinking_model(model_name):
-        extracted_parts = extract_thinking_and_response_tokens(actual_artifact_text_response)
-        if extracted_parts["thinking"]:
-            thinking_message_for_state = AIMessage(
-                id=f"thinking-{uuid.uuid4()}",
-                content=extracted_parts["thinking"],
-                additional_kwargs={"oc_hide_from_ui": True}
-            )
-        actual_artifact_text_response = extracted_parts["response"]
+    # if is_thinking_model(model_name):
+    #     extracted_parts = extract_thinking_and_response_tokens(actual_artifact_text_response)
+    #     if extracted_parts["thinking"]:
+    #         thinking_message_for_state = AIMessage(
+    #             id=f"thinking-{uuid.uuid4()}",
+    #             content=extracted_parts["thinking"],
+    #             additional_kwargs={"oc_hide_from_ui": True}
+    #         )
+    #     actual_artifact_text_response = extracted_parts["response"]
 
     new_artifact_content_item = create_new_rewrite_artifact_content(CreateNewArtifactContentArgs( # type: ignore
         artifact_type=determined_artifact_type,
@@ -571,7 +575,7 @@ async def rewrite_artifact_theme(state: OpenCanvasState, config: Optional[Dict[s
     state_regen_emojis: Optional[bool] = state.get("regenerateWithEmojis")
 
     # Import prompts if not already at top level (ensure they are available)
-    from app.agents.prompts import (
+    from agents.prompts import (
         CHANGE_ARTIFACT_LANGUAGE_PROMPT,
         CHANGE_ARTIFACT_READING_LEVEL_PROMPT,
         CHANGE_ARTIFACT_TO_PIRATE_PROMPT,
@@ -633,15 +637,15 @@ async def rewrite_artifact_theme(state: OpenCanvasState, config: Optional[Dict[s
     if not isinstance(actual_artifact_text_response, str):
         actual_artifact_text_response = str(actual_artifact_text_response)
 
-    if is_thinking_model(model_name):
-        extracted = extract_thinking_and_response_tokens(actual_artifact_text_response)
-        if extracted["thinking"]:
-            thinking_message_for_state = AIMessage(
-                id=f"thinking-{uuid.uuid4()}",
-                content=extracted["thinking"],
-                additional_kwargs={"oc_hide_from_ui": True}
-                )
-        actual_artifact_text_response = extracted["response"]
+    # if is_thinking_model(model_name):
+    #     extracted = extract_thinking_and_response_tokens(actual_artifact_text_response)
+    #     if extracted["thinking"]:
+    #         thinking_message_for_state = AIMessage(
+    #             id=f"thinking-{uuid.uuid4()}",
+    #             content=extracted["thinking"],
+    #             additional_kwargs={"oc_hide_from_ui": True}
+    #             )
+    #     actual_artifact_text_response = extracted["response"]
 
     existing_artifact_v3: Optional[ArtifactV3] = state.get("artifact")
     if not existing_artifact_v3: # Should be caught by earlier check
@@ -734,7 +738,7 @@ async def generate_followup(state: OpenCanvasState, config: Optional[Dict[str, A
         if last_msg_obj:
             last_message_str = get_string_from_content(last_msg_obj.content)
 
-    from app.agents.prompts import FOLLOWUP_ARTIFACT_PROMPT # Ensure it's imported
+    from agents.prompts import FOLLOWUP_ARTIFACT_PROMPT # Ensure it's imported
 
     prompt_str = FOLLOWUP_ARTIFACT_PROMPT.format( # Using the Python version of the prompt
         artifact=artifact_content_str, # Renamed from artifactContent to match Python prompt
@@ -789,7 +793,7 @@ async def rewrite_code_artifact_theme(state: OpenCanvasState, config: Optional[D
     field_to_reset: Optional[str] = None
 
     # Import prompts
-    from app.agents.prompts import (
+    from agents.prompts import (
         ADD_COMMENTS_TO_CODE_ARTIFACT_PROMPT,
         ADD_LOGS_TO_CODE_ARTIFACT_PROMPT,
         FIX_BUGS_CODE_ARTIFACT_PROMPT,
@@ -823,15 +827,15 @@ async def rewrite_code_artifact_theme(state: OpenCanvasState, config: Optional[D
     if not isinstance(actual_artifact_text_response, str):
          actual_artifact_text_response = str(actual_artifact_text_response)
 
-    if is_thinking_model(model_name):
-        extracted = extract_thinking_and_response_tokens(actual_artifact_text_response)
-        if extracted["thinking"]:
-            thinking_message_for_state = AIMessage(
-                id=f"thinking-{uuid.uuid4()}",
-                content=extracted["thinking"],
-                additional_kwargs={"oc_hide_from_ui": True}
-                )
-        actual_artifact_text_response = extracted["response"]
+    # if is_thinking_model(model_name):
+    #     extracted = extract_thinking_and_response_tokens(actual_artifact_text_response)
+    #     if extracted["thinking"]:
+    #         thinking_message_for_state = AIMessage(
+    #             id=f"thinking-{uuid.uuid4()}",
+    #             content=extracted["thinking"],
+    #             additional_kwargs={"oc_hide_from_ui": True}
+    #             )
+    #     actual_artifact_text_response = extracted["response"]
 
     existing_artifact_v3: Optional[ArtifactV3] = state.get("artifact")
     if not existing_artifact_v3: # Should be caught by earlier check
@@ -925,7 +929,7 @@ async def custom_action(state: OpenCanvasState, config: Optional[Dict[str, Any]]
     current_artifact_content_model = get_artifact_content(state.get("artifact"))
 
     # Import prompts here or ensure they are available at module level
-    from app.agents.prompts import (
+    from agents.prompts import (
         REFLECTIONS_QUICK_ACTION_PROMPT,
         CUSTOM_QUICK_ACTION_ARTIFACT_PROMPT_PREFIX,
         CUSTOM_QUICK_ACTION_CONVERSATION_CONTEXT,
@@ -1071,7 +1075,7 @@ async def update_artifact(state: OpenCanvasState, config: Optional[Dict[str, Any
         error_msg = "Cannot update artifact: No highlightedCode details found in state."
         return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)]} # type: ignore
 
-    from app.schemas.common import CodeHighlight # Import here to avoid circularity if moved
+    from schemas.common import CodeHighlight # Import here to avoid circularity if moved
     try:
         highlighted_code = CodeHighlight(**highlighted_code_details_dict)
     except Exception as e:
@@ -1086,7 +1090,7 @@ async def update_artifact(state: OpenCanvasState, config: Optional[Dict[str, Any
     highlighted_text_str = current_code_artifact.code[highlighted_code.startCharIndex : highlighted_code.endCharIndex]
     code_to_display_after_highlight = current_code_artifact.code[highlighted_code.endCharIndex : end_context_idx]
 
-    from app.agents.prompts import UPDATE_HIGHLIGHTED_ARTIFACT_PROMPT # Import prompt
+    from agents.prompts import UPDATE_HIGHLIGHTED_ARTIFACT_PROMPT # Import prompt
 
     formatted_prompt = UPDATE_HIGHLIGHTED_ARTIFACT_PROMPT.format(
         highlightedText=highlighted_text_str,
@@ -1226,7 +1230,7 @@ async def update_highlighted_text(state: OpenCanvasState, config: Optional[Dict[
         error_msg = "Cannot update highlighted text: No highlightedText details found in state."
         return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)]} # type: ignore
 
-    from app.schemas.common import TextHighlight # Import here
+    from schemas.common import TextHighlight # Import here
     try:
         highlighted_text_info = TextHighlight(**highlighted_text_details_dict)
     except Exception as e:
@@ -1367,7 +1371,7 @@ async def route_post_web_search_node(state: OpenCanvasState, config: Optional[Di
     # This node decides where to go AFTER web_search_node has populated webSearchResults.
     # It also formats the webSearchResults into an AIMessage for the LLM.
 
-    from app.schemas.common import SearchResult # For type hint
+    from schemas.common import SearchResult # For type hint
     web_results: Optional[List[SearchResult]] = state.get("webSearchResults")
 
     next_node_decision = "generateArtifact" if not state.get("artifact") else "rewriteArtifact"
@@ -1534,7 +1538,7 @@ async def web_search_node(state: OpenCanvasState, config: Optional[Dict[str, Any
     # TS uses state._messages for the sub-graph invocation.
     web_search_input = {"messages": state.get("_messages", [])}
 
-    from app.agents.web_search_graph.graph import web_search_graph_app # Import the compiled graph
+    from agents.web_search_graph.graph import web_search_graph_app # Import the compiled graph
 
     try:
         # Invoke the sub-graph. It will return its entire state (WebSearchState).
@@ -1663,7 +1667,7 @@ async def summarizer_node(state: OpenCanvasState, config: Optional[Dict[str, Any
         return {} # No change to state if no messages
 
     # Import the summarization logic
-    from app.agents.summarizer_graph.nodes import run_summarization_logic
+    from agents.summarizer_graph.nodes import run_summarization_logic
 
     # thread_id and config are not strictly needed by the simplified run_summarization_logic,
     # but could be passed if it evolved to need them (e.g. for model selection or saving summary to thread).
@@ -1731,25 +1735,27 @@ def route_post_web_search_conditional(state: OpenCanvasState, config: Optional[D
 # builder = StateGraph(OpenCanvasState) # Old placeholder
 # --- Graph Definition ---
 builder = StateGraph(OpenCanvasState,
-                     channels={
-                         "_messages": update_internal_messages,
-                         "messages": update_user_facing_messages
-                         # Other keys like 'artifact', 'highlightedCode', etc., will use the default
-                         # 'last write wins' reducer, which is usually what's needed for them.
-                     })
+                    #  channels={
+                    #      "_messages": update_internal_messages,
+                    #      "messages": update_user_facing_messages
+                    #      # Other keys like 'artifact', 'highlightedCode', etc., will use the default
+                    #      # 'last write wins' reducer, which is usually what's needed for them.
+                    #  }
+                     )
 
 # Adding nodes (ensure names match strings in conditional edges)
 builder.add_node("generatePath", generate_path)
-# builder.add_node("replyToGeneralInput", reply_to_general_input)
-# builder.add_node("generateArtifact", generate_artifact)
-# builder.add_node("updateArtifact", update_artifact)
-# builder.add_node("updateHighlightedText", update_highlighted_text)
-# builder.add_node("rewriteArtifactTheme", rewrite_artifact_theme)
-# builder.add_node("rewriteCodeArtifactTheme", rewrite_code_artifact_theme)
-# builder.add_node("customAction", custom_action)
-# builder.add_node("webSearch", web_search_node)
-# builder.add_node("routePostWebSearchNode", route_post_web_search_node) # Node before conditional edge
-# builder.add_node("generateFollowup", generate_followup)
+builder.add_node("replyToGeneralInput", reply_to_general_input)
+builder.add_node("generateArtifact", generate_artifact)
+builder.add_node("updateArtifact", update_artifact)
+builder.add_node("updateHighlightedText", update_highlighted_text)
+builder.add_node("rewriteArtifact", rewrite_artifact)
+builder.add_node("rewriteArtifactTheme", rewrite_artifact_theme)
+builder.add_node("rewriteCodeArtifactTheme", rewrite_code_artifact_theme)
+builder.add_node("customAction", custom_action)
+builder.add_node("webSearchNode", web_search_node)
+builder.add_node("routePostWebSearchNode", route_post_web_search_node) # Node before conditional edge
+builder.add_node("generateFollowup", generate_followup)
 builder.add_node("reflectNode", reflect_node)
 builder.add_node("cleanStateNode", clean_state_node)
 builder.add_node("generateTitleNode", generate_title_node)

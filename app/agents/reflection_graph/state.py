@@ -1,7 +1,7 @@
 # app/agents/reflection_graph/state.py
 from typing import List, Optional, TypedDict
 from langchain_core.messages import BaseMessage # type: ignore
-from app.schemas.common import ArtifactV3
+from schemas.common import ArtifactV3
 
 class ReflectionGraphState(TypedDict):
     messages: List[BaseMessage]       # The conversation history

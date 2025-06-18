@@ -2,25 +2,26 @@
 import os
 import json # For robust metadata handling
 from typing import Dict, Any, Optional, AsyncIterator, List
-from langgraph.checkpoint.sqlite import SqliteSaver
-from app.agents.open_canvas import open_canvas_graph_app, OpenCanvasState # Import the compiled app and state type
+# from langgraph.checkpoint.sqlite import SqliteSaver
+from agents.open_canvas import open_canvas_graph_app, OpenCanvasState # Import the compiled app and state type
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from app.schemas.agent import AgentInvokeRequest # For type hinting if directly used
-from app.config.settings import settings # Import the settings object
+from schemas.agent import AgentInvokeRequest # For type hinting if directly used
+from config.settings import settings # Import the settings object
 
 # --- Checkpointer Setup ---
 SQLITE_PATH = settings.LANGGRAPH_SQLITE_PATH
 print(f"Agent service: Using SQLite checkpointer at {SQLITE_PATH}")
 
-try:
-    memory_saver = SqliteSaver.from_conn_string(SQLITE_PATH)
-    open_canvas_app_with_checkpoint = open_canvas_graph_app.with_checkpointer(memory_saver)
-    print(f"Agent service: OpenCanvas graph recompiled with SQLite checkpointer.")
-except Exception as e:
-    print(f"Error initializing SQLite checkpointer or recompiling graph: {e}")
-    print("Agent service: Falling back to graph without checkpointer. State will be ephemeral.")
-    open_canvas_app_with_checkpoint = open_canvas_graph_app
+# try:
+#     memory_saver = SqliteSaver.from_conn_string(SQLITE_PATH)
+#     open_canvas_app_with_checkpoint = open_canvas_graph_app.with_checkpointer(memory_saver)
+#     print(f"Agent service: OpenCanvas graph recompiled with SQLite checkpointer.")
+# except Exception as e:
+#     print(f"Error initializing SQLite checkpointer or recompiling graph: {e}")
+#     print("Agent service: Falling back to graph without checkpointer. State will be ephemeral.")
+#     open_canvas_app_with_checkpoint = open_canvas_graph_app
 
+open_canvas_app_with_checkpoint = open_canvas_graph_app
 
 class AgentService:
     def __init__(self, app_with_checkpoint = open_canvas_app_with_checkpoint):
