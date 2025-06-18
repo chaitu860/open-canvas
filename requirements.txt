@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+pydantic
+langgraph
+langchain
+langchain-core
+openai
+aiohttp
+python-dotenv
+pydantic-settings
+pypdf
+langchain-openai
+langchain-anthropic
+langchain-community
