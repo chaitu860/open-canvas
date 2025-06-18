@@ -1498,29 +1498,201 @@ async def clean_state_node(state: OpenCanvasState, config: Optional[Dict[str, An
     return fields_to_reset
 
 
+# --- Web Search Sub-Graph Integration ---
+# Placeholder for a more sophisticated message creation from web results
+def create_ai_message_from_web_results_placeholder(results: List[Dict[str,Any]]) -> AIMessage:
+    if not results:
+        return AIMessage(content="No web search results found or an error occurred during search.", additional_kwargs={"webSearchStatus": "error_or_empty"})
+
+    # Simplified content for now
+    content_parts = ["Web search results:\n"]
+    for i, r in enumerate(results[:3]): # Show top 3 results
+        title = r.get('metadata',{}).get('title', 'N/A')
+        url = r.get('metadata',{}).get('url', 'N/A')
+        # Snippet of page_content could be added if desired
+        # page_snippet = r.get('page_content', '')[:100] + "..." if r.get('page_content') else ""
+        content_parts.append(f"{i+1}. {title}: {url}")
+
+    return AIMessage(
+        content="\n".join(content_parts),
+        additional_kwargs={
+            "webSearchResults": results, # Attach full results for potential later use
+            "webSearchStatus": "done",
+            "oc_hide_from_ui": True # This message is for LLM context, not direct UI display
+            }
+        )
+
+async def web_search_node(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    print("Executing Node: web_search_node (Main Graph - calling WebSearchGraph)")
+    if config is None: config = {}
+    # graph_config is the full RunnableConfig for the main graph.
+    # The web_search_graph_app might not need all of it, but passing it for consistency.
+    # Key parts like API keys (EXA_API_KEY) are expected as environment variables by the sub-graph's nodes.
+
+    # Input for web_search_graph is 'messages' (which will be state._messages from main graph)
+    # Ensure we are passing the correct message list for web search context.
+    # TS uses state._messages for the sub-graph invocation.
+    web_search_input = {"messages": state.get("_messages", [])}
+
+    from app.agents.web_search_graph.graph import web_search_graph_app # Import the compiled graph
+
+    try:
+        # Invoke the sub-graph. It will return its entire state (WebSearchState).
+        web_search_result_state: WebSearchState = await web_search_graph_app.ainvoke(web_search_input, config=config) # type: ignore
+
+        # Extract webSearchResults to be merged into OpenCanvasState.
+        # Also, ensure webSearchEnabled is reset.
+        return {
+            "webSearchResults": web_search_result_state.get("webSearchResults", []),
+            "webSearchEnabled": False
+        }
+    except Exception as e:
+        print(f"Error invoking web_search_graph_app: {e}")
+        # Ensure webSearchEnabled is reset even on error.
+        return {"webSearchResults": [], "webSearchEnabled": False}
+
+
+async def route_post_web_search_node(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    print("Executing Node: route_post_web_search_node (Main Graph)")
+
+    next_node_val = "generateArtifact" # Default if no artifact exists
+    current_artifact_v3 = state.get("artifact")
+    if current_artifact_v3 and current_artifact_v3.contents:
+        next_node_val = "rewriteArtifact" # Default if artifact exists
+
+    web_search_results = state.get("webSearchResults")
+
+    messages_to_add_to_internal_history = []
+    if web_search_results:
+        ai_message_with_results = create_ai_message_from_web_results_placeholder(web_search_results)
+        messages_to_add_to_internal_history.append(ai_message_with_results)
+
+    update_dict: Dict[str, Any] = {
+        "next_node": next_node_val,
+        # webSearchEnabled was already set to False by web_search_node.
+        # No need to set it again unless there's a specific reason.
+    }
+    if messages_to_add_to_internal_history:
+        # This should append to _messages. The graph reducer for _messages needs to handle this.
+        # If _messages is a list, and the reducer appends, this is fine.
+        # The TS reducer for _messages prepends: (right ?? []).concat(left ?? [])
+        # So, to achieve append: current _messages + new messages
+        # However, the node output is merged. If we return `{"_messages": new_list}`,
+        # it will depend on the operator.add or custom reducer behavior.
+        # For now, returning just the new messages to be added.
+        # The reducer for _messages should be `lambda existing, new: (existing or []) + (new or [])` for append.
+        # Or, if it's the TS-like prepend: `lambda existing, new: (new or []) + (existing or [])`
+        # If returning just `messages_to_add_to_internal_history`, it implies the reducer for `_messages`
+        # should be configured to append this to the existing `_messages` list.
+        # Let's assume the reducer for _messages will append if it gets a list.
+        update_dict["_messages"] = messages_to_add_to_internal_history
+
+    return update_dict
+
+# This conditional edge function remains mostly the same, relying on 'next_node' in state.
+def route_post_web_search_conditional(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> str:
+    print(f"Executing Conditional Edge: route_post_web_search_conditional, next_node is {state.get('next_node')}")
+    return state.get("next_node", END) # Default to END if not set by the node
+
+
 async def generate_title_node(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    print("Executing Node: generate_title_node")
-    # This node would call an LLM to generate a title based on state.get("artifact") or state.get("messages")
-    # It might update a 'title' field in the 'artifact' or a general 'conversation_title' in state.
-    # For now, no message output, but could produce a SystemMessage with the title.
-    return {}
+    print("Executing Node: generate_title_node (Main Graph - Placeholder for triggering title generation)")
+    if config is None: config = {}
+    # graph_config is the full RunnableConfig of the main graph
+
+    configurable_main_graph = config.get("configurable", {})
+    # The main graph's thread_id is needed by the title sub-graph
+    main_thread_id = configurable_main_graph.get("thread_id")
+
+    if not main_thread_id:
+        print("Warning: 'thread_id' not found in main graph's config. Cannot trigger title generation graph without it.")
+        return {}
+
+    # Safeguard from TS version: only generate title for very new conversations
+    # TS uses `state.messages.length > 2`. `messages` in OpenCanvasState refers to the user-facing messages.
+    if len(state.get("messages", [])) > 2: # Check user-facing messages
+        print("Skipping title generation: Not considered a new enough conversation (more than 2 user-facing messages).")
+        return {}
+
+    # Prepare input for the thread_title_graph_app
+    # The title graph expects 'messages' (for conversation context) and 'artifact'.
+    # TS uses `state.messages` (user-facing) not `state._messages` (internal) for title generation context.
+    title_graph_input = {
+        "messages": state.get("messages", []),
+        "artifact": state.get("artifact")
+    }
+
+    # Prepare the config for the thread_title_graph_app run
+    # Pass the main thread_id as 'open_canvas_thread_id' for the title graph's context.
+    title_graph_run_config = {
+        "configurable": {
+            "open_canvas_thread_id": main_thread_id,
+            # If the sub-graph needed other specific configs, pass them here.
+        },
+        # Ensure recursion limit is handled if calling graphs from graphs
+        "recursion_limit": config.get("recursion_limit", 25) -1 if config.get("recursion_limit") else 24,
+    }
+
+    print(f"Generate Title Node (Main Graph): Would trigger 'thread_title_graph_app'.")
+    print(f"  - Title Graph Input (first 100 chars of messages): {{'messages': {str(title_graph_input['messages'])[:100]}..., 'artifact': {str(title_graph_input['artifact'])[:100]}...}}")
+    print(f"  - Title Graph Config: {{'configurable': {{'open_canvas_thread_id': '{main_thread_id}'}}}}")
+
+    # TODO - Phase 2: Implement actual call to thread_title_graph_app.
+    # This could be a direct `await thread_title_graph_app.ainvoke(...)` if synchronous behavior is acceptable,
+    # or a background task.
+    # Example (synchronous call):
+    # from app.agents.thread_title_graph.graph import thread_title_graph_app
+    # try:
+    #     await thread_title_graph_app.ainvoke(title_graph_input, config=title_graph_run_config)
+    #     print("Thread title graph invocation completed.")
+    # except Exception as e:
+    #     print(f"Error invoking thread title graph: {e}")
+
+    return {} # generate_title_node in main graph doesn't directly change main graph state; sub-graph updates external metadata.
 
 
 async def summarizer_node(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     print("Executing Node: summarizer_node")
     # This node summarizes state.get("_messages", [])
     # The new summarized list becomes the new state._messages
-    # Potentially, a summary message is also added to state.messages for UI.
-    summarized_internal_history = [SystemMessage(content="The previous conversation has been summarized to save space.")]
-    # Could also add a user-facing message:
-    # summary_ui_message = SystemMessage(content="Conversation history has been summarized.")
-    return {
-        "_messages": summarized_internal_history,
-        # "messages": state.get("messages", []) + [summary_ui_message] # Optional: inform user
-    }
+    print("Executing Node: summarizer_node (Main Graph - calling summarization logic)")
+
+    messages_to_summarize = state.get("_messages", [])
+    if not messages_to_summarize:
+        print("Summarizer node: No messages to summarize.")
+        return {} # No change to state if no messages
+
+    # Import the summarization logic
+    from app.agents.summarizer_graph.nodes import run_summarization_logic
+
+    # thread_id and config are not strictly needed by the simplified run_summarization_logic,
+    # but could be passed if it evolved to need them (e.g. for model selection or saving summary to thread).
+    # graph_config = config.get("configurable", {}) if config else {}
+    # thread_id = graph_config.get("thread_id")
+
+    new_summarized_message = await run_summarization_logic(
+        messages_to_summarize=messages_to_summarize
+    )
+
+    # The new_summarized_message is a HumanMessage marked with OC_SUMMARIZED_MESSAGE_KEY.
+    # This single message should replace the entire conversation history in _messages.
+    # This relies on the custom reducer for '_messages' in the main graph state,
+    # which should be configured to replace the history if it sees this key.
+    # For example, the TS reducer for _messages:
+    # `(left: BaseMessage[] | undefined, right: BaseMessage[] | undefined): BaseMessage[] => {`
+    # `  if (right && right.length === 1 && right[0].additional_kwargs?.[OC_SUMMARIZED_MESSAGE_KEY]) {`
+    # `    return right; // Replace with summary`
+    # `  }`
+    # `  return (right ?? []).concat(left ?? []); // Prepend new messages otherwise`
+    # `}`
+    # So, returning `{"_messages": [new_summarized_message]}` is the correct way to signal this replacement.
+    # The 'messages' key (user-facing UI) is NOT updated with the summary.
+    return {"_messages": [new_summarized_message]}
 
 
 # --- Conditional Routing Functions (Updated signatures) ---
+from .reducers import update_internal_messages, update_user_facing_messages # Import reducers
+
 def route_node(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Optional[str]:
     # This conditional edge function receives the *entire current state* of the graph.
     # The preceding node (e.g., generate_path) must have updated the 'next_node' field in the state.
@@ -1556,9 +1728,18 @@ def route_post_web_search_conditional(state: OpenCanvasState, config: Optional[D
 
 
 # --- Graph Definition (Placeholders for node names, ensure they match .add_node calls) ---
-# builder = StateGraph(OpenCanvasState)
-# # Adding nodes (ensure names match strings in conditional edges)
-# builder.add_node("generatePath", generate_path)
+# builder = StateGraph(OpenCanvasState) # Old placeholder
+# --- Graph Definition ---
+builder = StateGraph(OpenCanvasState,
+                     channels={
+                         "_messages": update_internal_messages,
+                         "messages": update_user_facing_messages
+                         # Other keys like 'artifact', 'highlightedCode', etc., will use the default
+                         # 'last write wins' reducer, which is usually what's needed for them.
+                     })
+
+# Adding nodes (ensure names match strings in conditional edges)
+builder.add_node("generatePath", generate_path)
 # builder.add_node("replyToGeneralInput", reply_to_general_input)
 # builder.add_node("generateArtifact", generate_artifact)
 # builder.add_node("updateArtifact", update_artifact)
@@ -1569,54 +1750,118 @@ def route_post_web_search_conditional(state: OpenCanvasState, config: Optional[D
 # builder.add_node("webSearch", web_search_node)
 # builder.add_node("routePostWebSearchNode", route_post_web_search_node) # Node before conditional edge
 # builder.add_node("generateFollowup", generate_followup)
-# builder.add_node("reflectNode", reflect_node) # Changed from "reflect" to match TS node name style
-# builder.add_node("cleanStateNode", clean_state_node) # Changed from "cleanState"
-# builder.add_node("generateTitleNode", generate_title_node)
-# builder.add_node("summarizerNode", summarizer_node)
+builder.add_node("reflectNode", reflect_node)
+builder.add_node("cleanStateNode", clean_state_node)
+builder.add_node("generateTitleNode", generate_title_node)
+builder.add_node("summarizerNode", summarizer_node)
 
-# builder.add_edge(START, "generatePath")
+# Entry point
+builder.add_edge(START, "generatePath")
 
-# # generatePath conditional routing using 'route_node' which reads 'next_node' from state
-# builder.add_conditional_edges("generatePath", route_node, {
-    # "updateArtifact": "updateArtifact",
-    # "rewriteArtifactTheme": "rewriteArtifactTheme",
-    # "rewriteCodeArtifactTheme": "rewriteCodeArtifactTheme",
-    # "replyToGeneralInput": "replyToGeneralInput",
-    # "generateArtifact": "generateArtifact",
-    # # "rewriteArtifact": "updateArtifact", # Assuming 'rewriteArtifact' means general update, maps to 'updateArtifact' node
-    # "customAction": "customAction",
-    # "updateHighlightedText": "updateHighlightedText",
-    # "webSearch": "webSearch",
-    # END: END
-# })
+# Conditional routing from generatePath (based on its 'next_node' output from state)
+builder.add_conditional_edges(
+    "generatePath",
+    route_node,
+    {
+        "updateArtifact": "updateArtifact",
+        "rewriteArtifactTheme": "rewriteArtifactTheme",
+        "rewriteCodeArtifactTheme": "rewriteCodeArtifactTheme",
+        "replyToGeneralInput": "replyToGeneralInput",
+        "generateArtifact": "generateArtifact",
+        "rewriteArtifact": "rewriteArtifact",
+        "customAction": "customAction",
+        "updateHighlightedText": "updateHighlightedText",
+        "webSearch": "webSearchNode", # Matched node name
+        END: END
+    }
+)
 
-# # Edges from artifact modification/generation nodes to generateFollowup
-# for node_name in ["generateArtifact", "updateArtifact", "updateHighlightedText",
-#                   "rewriteArtifactTheme", "rewriteCodeArtifactTheme", "customAction"]:
-#     builder.add_edge(node_name, "generateFollowup")
+# Direct Edges after artifact main operations to followup
+artifact_op_nodes = [
+    "generateArtifact", "updateArtifact", "updateHighlightedText",
+    "rewriteArtifact", "rewriteArtifactTheme", "rewriteCodeArtifactTheme", "customAction"
+]
+for node_name in artifact_op_nodes:
+    builder.add_edge(node_name, "generateFollowup")
 
-# builder.add_edge("webSearch", "routePostWebSearchNode")
+# Web search flow
+builder.add_edge("webSearchNode", "routePostWebSearchNode") # Matched node name
 
-# # Conditional routing after web search
-# builder.add_conditional_edges("routePostWebSearchNode", route_post_web_search_conditional, {
-    # "generateArtifact": "generateArtifact", # These are set by route_post_web_search_node
-    # "updateArtifact": "updateArtifact",   # Assuming web search results feed into artifact update
-    # END: END
-# })
+# Conditional routing after web search results are processed by routePostWebSearchNode
+builder.add_conditional_edges(
+    "routePostWebSearchNode",
+    route_post_web_search_conditional,
+    {
+        "generateArtifact": "generateArtifact",
+        "rewriteArtifact": "rewriteArtifact", # TS had 'updateArtifact', assuming 'rewriteArtifact' is more general
+        END: END
+    }
+)
 
-# builder.add_edge("replyToGeneralInput", "cleanStateNode")
-# builder.add_edge("generateFollowup", "reflectNode")
-# builder.add_edge("reflectNode", "cleanStateNode")
+# Other direct edges
+builder.add_edge("replyToGeneralInput", "cleanStateNode") # Matched node name
+builder.add_edge("generateFollowup", "reflectNode")    # Matched node name
+builder.add_edge("reflectNode", "cleanStateNode")       # Matched node name
 
-# # cleanStateNode conditional routing
-# builder.add_conditional_edges("cleanStateNode", conditionally_generate_title, {
-    # "generateTitleNode": "generateTitleNode",
-    # "summarizerNode": "summarizerNode",
-    # END: END
-# })
-# builder.add_edge("generateTitleNode", END)
-# builder.add_edge("summarizerNode", END)
+# Conditional routing from cleanStateNode
+builder.add_conditional_edges(
+    "cleanStateNode", # Matched node name
+    conditionally_generate_title,
+    {
+        "generateTitleNode": "generateTitleNode", # Matched node name
+        "summarizerNode": "summarizerNode",       # Matched node name
+        END: END
+    }
+)
 
-# # memory = SqliteSaver.from_conn_string(":memory:")
-# # compiled_graph = builder.compile(checkpointer=memory)
-# # print("Graph sketch compiled and ready for use.")
+# Final terminal edges
+builder.add_edge("generateTitleNode", END) # Matched node name
+builder.add_edge("summarizerNode", END)    # Matched node name
+
+# Compile the graph
+# Checkpointer will be added later during FastAPI integration or main app setup.
+open_canvas_graph_app = builder.compile(checkpointer=None)
+print("OpenCanvas Graph compiled successfully (without checkpointer).")
+
+# Example test execution (commented out, for local testing)
+# async def main_test_graph():
+#     from langchain_core.messages import HumanMessage
+#     import asyncio
+
+#     inputs = {"messages": [HumanMessage(content="Hello! Generate an artifact about a sunny day.")]}
+#     config = {
+#         "configurable": {
+#             "assistant_id": "test-assistant-id-123",
+#             "thread_id": "test-thread-id-456",
+#             "user_id": "test-user-789", # Example, if needed by any node/helper
+#             # modelConfig might be needed if not hardcoded in get_model_from_config fallbacks
+#             "modelConfig": {"provider": "openai", "customModelName": "gpt-4o-mini"}
+#         }
+#     }
+#     print(f"Invoking graph with inputs: {inputs}")
+#     print(f"Using config: {config}")
+
+#     async for event in open_canvas_graph_app.astream_events(inputs, config=config, version="v2"):
+#         print("\n--- Event ---")
+#         print(f"Event Type: {event['event']}")
+#         print(f"Node Name: {event['name']}")
+#         # print(f"Node Input: {event.get('data', {}).get('input')}") # Can be verbose
+#         # print(f"Node Output: {event.get('data', {}).get('output')}") # Can be verbose
+
+#         if event['event'] == 'on_chain_end' and event['name'] == 'generatePath':
+#             print(f"Output of generatePath: {event['data'].get('output')}")
+
+#         if event['event'] == 'on_chain_stream' and event['name'] == 'replyToGeneralInput':
+#             # For streaming tokens from replyToGeneralInput
+#             chunk = event['data'].get('chunk')
+#             if chunk:
+#                 if hasattr(chunk, 'content'):
+#                     print(f"Streaming output (replyToGeneralInput): {chunk.content}", end="", flush=True)
+#                 elif isinstance(chunk, dict) and 'content' in chunk:
+#                      print(f"Streaming output (replyToGeneralInput): {chunk['content']}", end="", flush=True)
+
+
+# if __name__ == "__main__":
+#    # Ensure event loop is running for asyncio if testing directly
+#    # asyncio.run(main_test_graph())
+#    pass

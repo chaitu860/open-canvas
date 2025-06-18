@@ -12,3 +12,5 @@ pypdf
 langchain-openai
 langchain-anthropic
 langchain-community
+langchain-exa
+exa-py

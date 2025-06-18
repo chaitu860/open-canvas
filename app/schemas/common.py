@@ -94,3 +94,7 @@ class CustomQuickAction(BaseModel):
     includeReflections: bool
     includePrefix: bool # Whether to include the standard CUSTOM_QUICK_ACTION_ARTIFACT_PROMPT_PREFIX
     includeRecentHistory: bool
+
+# Shared constants (can be moved to a dedicated app/constants.py later if many accumulate)
+OC_SUMMARIZED_MESSAGE_KEY = "__oc_summarized_message"
+OC_HIDE_FROM_UI_KEY = "oc_hide_from_ui" # From generate_path_helpers/documents.py, centralizing
