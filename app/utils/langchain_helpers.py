@@ -8,7 +8,7 @@ from pydantic import BaseModel, HttpUrl
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage # type: ignore
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
-# from langchain_google_genai import ChatGoogleGenerativeAI # Example for later
+from langchain_google_genai import ChatGoogleGenerativeAI # Example for later
 # from langchain_community.chat_models import ChatFireworks, ChatGroq # Example for later
 # from langchain_community.chat_models.ollama import ChatOllama # Example for later
 
@@ -165,9 +165,9 @@ async def get_model_from_config(
         # 'model_name' might be used for underlying model reference if API supports/needs it
         return ChatOpenAI(**model_params) # Uses azure_deployment, api_key, azure_endpoint, api_version
     # Add other providers
-    # elif provider == "google-genai":
-    #     model_params["google_api_key"] = model_params.pop("api_key", None)
-    #     return ChatGoogleGenerativeAI(**model_params)
+    elif provider == "google-genai":
+        model_params["google_api_key"] = model_params.pop("api_key", None)
+        return ChatGoogleGenerativeAI(**model_params)
     # elif provider == "ollama":
     #     return ChatOllama(**model_params)
     # ...

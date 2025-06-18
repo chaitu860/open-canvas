@@ -20,6 +20,23 @@ from langchain_core.messages import HumanMessage # To create initial message for
 router = APIRouter()
 agent_service_instance = AgentService() # Instantiate the service
 
+def serialize_event(obj):
+    """
+    Recursively convert LangChain message objects and other non-serializables to dicts.
+    """
+    if isinstance(obj, list):
+        return [serialize_event(item) for item in obj]
+    if hasattr(obj, "dict"):  # Pydantic or similar
+        return obj.dict()
+    if hasattr(obj, "__dict__") and not isinstance(obj, type):
+        # For LangChain messages and similar
+        d = obj.__dict__.copy()
+        d["__type__"] = obj.__class__.__name__
+        return {k: serialize_event(v) for k, v in d.items()}
+    if isinstance(obj, dict):
+        return {k: serialize_event(v) for k, v in obj.items()}
+    return obj
+
 # The response for streaming is different. We'll stream JSON events.
 @router.post("/invoke")
 async def invoke_agent(
@@ -33,7 +50,7 @@ async def invoke_agent(
     # For a new conversation, a new thread_id is typically generated.
     # If resuming an existing conversation, the client would pass the thread_id.
     thread_id = str(uuid.uuid4())
-
+    print(payload.config)
     configurable_payload_from_request: Optional[Dict[str, Any]] = None
     if payload.config and "configurable" in payload.config and isinstance(payload.config["configurable"], dict):
         configurable_payload_from_request = payload.config["configurable"]
@@ -72,17 +89,14 @@ async def invoke_agent(
             graph_invoke_payload["systemPrompt"] = payload.config["systemPrompt"]
 
     async def event_publisher():
-        # stream_run_id is not strictly needed by LangGraph's checkpointer system (which uses thread_id)
-        # but can be useful for client-side tracking of a specific stream.
-        # print(f"API Streaming for run_id: {stream_run_id}, thread_id: {thread_id}")
-
         async for event in agent_service_instance.invoke_agent_stream(
-            input_payload=graph_invoke_payload,
+            graph_input_payload=graph_invoke_payload,
             assistant_id=assistant_id,
             thread_id=thread_id,
-            request_configurable_payload=configurable_payload_from_request # Pass the dict from request.config.configurable
+            request_config_extras=configurable_payload_from_request
         ):
-            yield f"data: {json.dumps(event)}\n\n" # SSE format: data: <json_string>\n\n
+            # Serialize event before yielding
+            yield f"data: {json.dumps(serialize_event(event))}\n\n" # SSE format
 
     return StreamingResponse(event_publisher(), media_type="text/event-stream")
 
