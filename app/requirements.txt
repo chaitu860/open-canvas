@@ -15,5 +15,5 @@ exa-py
 aiohttp
 pypdf
 tiktoken
-# supabase # Optional, not directly used by Python backend yet
+supabase
 # langsmith # Optional for tracing

@@ -1,9 +1,27 @@
 # app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware # Added
+from app.api import user_api # Assuming user_api.py is in app/api/
+from app.db.supabase_client import init_supabase_client # For explicit init at startup
 from api.agent import router as agent_router
 
+
 app = FastAPI(title="LangGraph Agent Server - Python Edition")
+
+# ... FastAPI app initialization ...
+# app = FastAPI(...)
+
+@app.on_event("startup")
+async def startup_event():
+    print("Application startup: Initializing Supabase client...")
+    try:
+        init_supabase_client()
+        print("Supabase client initialization successful from startup event.")
+    except ValueError as e: # From init_supabase_client if config missing
+        print(f"CRITICAL ERROR: Supabase client could not be initialized at startup: {e}")
+        # Optionally, prevent app from starting or run in a degraded mode
+    except Exception as e:
+        print(f"CRITICAL ERROR: Unexpected error during Supabase client initialization at startup: {e}")
 
 # --- CORS Configuration ---
 # Adjust origins for production if needed.
@@ -30,3 +48,6 @@ async def root():
     return {"message": "LangGraph Agent Server is running"}
 
 app.include_router(agent_router, prefix="/api/agent")
+app.include_router(user_api.router) # Add this line
+# Make sure agent_router is also included if it was there
+# app.include_router(agent_router, prefix="/api/agent")

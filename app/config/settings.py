@@ -18,8 +18,8 @@ class Settings(BaseSettings):
     # FRONTEND_URL: str = "http://localhost:3000"
 
     # Supabase keys (optional, if backend needs direct Supabase access)
-    # NEXT_PUBLIC_SUPABASE_URL: Optional[str] = None
-    # SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
+    SUPABASE_URL: Optional[str] = None
+    SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
 
     # Pydantic V2 style for model_config:
     # Loads variables from a .env file.
