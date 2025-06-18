@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware # Added
 from app.api import user_api # Assuming user_api.py is in app/api/
+from app.api import artifact_api # Import for the new artifact API
 from app.db.supabase_client import init_supabase_client # For explicit init at startup
 from api.agent import router as agent_router
 
@@ -48,6 +49,7 @@ async def root():
     return {"message": "LangGraph Agent Server is running"}
 
 app.include_router(agent_router, prefix="/api/agent")
-app.include_router(user_api.router) # Add this line
+app.include_router(user_api.router)
+app.include_router(artifact_api.router) # Add the artifact API router
 # Make sure agent_router is also included if it was there
 # app.include_router(agent_router, prefix="/api/agent")

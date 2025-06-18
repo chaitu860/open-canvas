@@ -33,7 +33,9 @@ from agents.prompts import CURRENT_ARTIFACT_PROMPT, NO_ARTIFACT_PROMPT # Added
 # Imports for generate_artifact (already present from previous step, ensure they are correctly placed)
 from agents.nodes.generate_artifact_helpers.schemas import ArtifactToolSchema
 from agents.nodes.generate_artifact_helpers.utils import format_new_artifact_prompt, create_artifact_content
-from schemas.common import ArtifactV3, ArtifactType, ArtifactMarkdownV3, ArtifactCodeV3, ProgrammingLanguageOptions
+from schemas.common import ArtifactV3, ArtifactType, ArtifactMarkdownV3, ArtifactCodeV3, ProgrammingLanguageOptions, ArtifactType
+from app.services.session_service import SessionService # For artifact saving
+import uuid # For artifact saving
 
 # Imports for rewrite_artifact
 from agents.nodes.rewrite_artifact_helpers.schemas import OptionallyUpdateArtifactMetaSchema
@@ -434,6 +436,66 @@ async def generate_artifact(state: OpenCanvasState, config: Optional[Dict[str, A
     # Since we are forcing a tool call, the LLM's response *is* the tool call, not a chat message.
     # If a chat message is desired *in addition* to the artifact, it needs to be constructed here.
     # For now, strictly adhering to the TS return signature for this node:
+    # --- Begin Artifact Saving Logic ---
+    session_service: Optional[SessionService] = graph_config.get("session_service")
+    user_id_str: Optional[str] = graph_config.get("supabase_user_id")
+    # LangGraph's thread_id is our session_id for artifacts
+    session_id_str: Optional[str] = graph_config.get("thread_id")
+
+    if session_service and user_id_str and session_id_str:
+        try:
+            user_id = uuid.UUID(user_id_str)
+            session_id = uuid.UUID(session_id_str)
+
+            artifact_name_str = parsed_args.title
+            artifact_type_val = parsed_args.type # This is ArtifactType enum instance
+
+            # Ensure artifact_type_val is an enum and convert to string value
+            if isinstance(artifact_type_val, ArtifactType):
+                artifact_type_str_val = artifact_type_val.value
+            else: # Should not happen if ArtifactToolSchema is used correctly
+                artifact_type_str_val = str(artifact_type_val)
+
+            content_to_save = parsed_args.artifact # This is the full string content
+
+            print(f"Attempting to save artifact via stream: user_id={user_id}, session_id={session_id}, name={artifact_name_str}, type={artifact_type_str_val}")
+
+            # Prepare langgraph_output_reference if needed (example)
+            # langgraph_output_reference = {
+            #     "tool_call_id": llm_response.tool_calls[0].get("id") if llm_response.tool_calls and llm_response.tool_calls[0].get("id") else None,
+            #     "tool_name": "generate_artifact",
+            #     "tool_args": parsed_args.dict() # Pydantic model to dict
+            # }
+
+            save_result = await session_service.save_artifact_content_streamed(
+                user_id=user_id,
+                session_id=session_id,
+                artifact_name=artifact_name_str,
+                artifact_type_str=artifact_type_str_val,
+                content_to_stream=content_to_save,
+                # version_notes=None, # Add if available (e.g. from parsed_args if schema included it)
+                # langgraph_output_reference=langgraph_output_reference
+            )
+            if save_result:
+                saved_artifact_id, saved_version_id = save_result
+                print(f"Artifact content saved. Artifact ID: {saved_artifact_id}, Version ID: {saved_version_id}")
+                # Optionally, you could try to update new_artifact_v3 with these IDs if the schema supports it,
+                # but ArtifactV3 doesn't have db_id fields. The primary purpose is saving, not modifying the graph state artifact.
+            else:
+                print(f"Failed to save artifact content for {artifact_name_str}")
+
+        except ValueError as e: # For UUID conversion errors
+            print(f"Error converting user_id or session_id to UUID during artifact saving: {e}")
+        except Exception as e: # Catch any other unexpected errors during saving
+            print(f"An unexpected error occurred during artifact saving: {e}")
+    else:
+        missing_configs = []
+        if not session_service: missing_configs.append("session_service")
+        if not user_id_str: missing_configs.append("supabase_user_id")
+        if not session_id_str: missing_configs.append("thread_id (for session_id)")
+        print(f"Could not save artifact content because some configurations are missing: {', '.join(missing_configs)}")
+    # --- End Artifact Saving Logic ---
+
     return {"artifact": new_artifact_v3}
 
 
@@ -538,6 +600,53 @@ async def rewrite_artifact(state: OpenCanvasState, config: Optional[Dict[str, An
     if thinking_message_for_state:
         update_dict["messages"] = [thinking_message_for_state]
         update_dict["_messages"] = [thinking_message_for_state]
+
+    # --- Begin Artifact Saving Logic for rewrite_artifact ---
+    session_service: Optional[SessionService] = graph_config.get("session_service")
+    user_id_str: Optional[str] = graph_config.get("supabase_user_id")
+    session_id_str: Optional[str] = graph_config.get("thread_id") # LangGraph thread_id is session_id
+
+    node_name = "rewrite_artifact"
+    if session_service and user_id_str and session_id_str:
+        try:
+            user_id = uuid.UUID(user_id_str)
+            session_id = uuid.UUID(session_id_str)
+
+            # Content is from actual_artifact_text_response (which is new_artifact_content_item.content)
+            content_to_save = actual_artifact_text_response
+
+            # Name from artifact_meta_tool_call or current model
+            artifact_name_str = artifact_meta_update_schema.title if artifact_meta_update_schema.title else current_artifact_content_model.title
+
+            # Type from determined_artifact_type (which is an enum)
+            artifact_type_str_val = determined_artifact_type.value
+
+            print(f"Attempting to save artifact via stream from node {node_name}: user_id={user_id}, session_id={session_id}, name={artifact_name_str}, type={artifact_type_str_val}")
+
+            save_result = await session_service.save_artifact_content_streamed(
+                user_id=user_id,
+                session_id=session_id,
+                artifact_name=artifact_name_str,
+                artifact_type_str=artifact_type_str_val,
+                content_to_stream=content_to_save
+            )
+            if save_result:
+                saved_artifact_id, saved_version_id = save_result
+                print(f"Artifact content from node {node_name} saved. Artifact ID: {saved_artifact_id}, Version ID: {saved_version_id}")
+            else:
+                print(f"Failed to save artifact content from node {node_name} for {artifact_name_str}")
+
+        except ValueError as e: # For UUID conversion
+            print(f"Error converting IDs in node {node_name}: {e}")
+        except Exception as e:
+            print(f"An unexpected error occurred during artifact saving in node {node_name}: {e}")
+    else:
+        missing_configs = []
+        if not session_service: missing_configs.append("session_service")
+        if not user_id_str: missing_configs.append("supabase_user_id")
+        if not session_id_str: missing_configs.append("thread_id (for session_id)")
+        print(f"Could not save artifact content from {node_name} because some configurations are missing: {', '.join(missing_configs)}")
+    # --- End Artifact Saving Logic for rewrite_artifact ---
 
     return update_dict
 
@@ -677,6 +786,48 @@ async def rewrite_artifact_theme(state: OpenCanvasState, config: Optional[Dict[s
     if thinking_message_for_state:
         update_dict["messages"] = [thinking_message_for_state]
         update_dict["_messages"] = [thinking_message_for_state]
+
+    # --- Begin Artifact Saving Logic for rewrite_artifact_theme ---
+    session_service: Optional[SessionService] = graph_config.get("session_service")
+    user_id_str: Optional[str] = graph_config.get("supabase_user_id")
+    session_id_str: Optional[str] = graph_config.get("thread_id")
+
+    node_name = "rewrite_artifact_theme"
+    if session_service and user_id_str and session_id_str:
+        try:
+            user_id = uuid.UUID(user_id_str)
+            session_id = uuid.UUID(session_id_str)
+
+            content_to_save = actual_artifact_text_response
+            artifact_name_str = current_markdown_artifact.title
+            artifact_type_str_val = ArtifactType.TEXT.value # This node only handles text
+
+            print(f"Attempting to save artifact via stream from node {node_name}: user_id={user_id}, session_id={session_id}, name={artifact_name_str}, type={artifact_type_str_val}")
+
+            save_result = await session_service.save_artifact_content_streamed(
+                user_id=user_id,
+                session_id=session_id,
+                artifact_name=artifact_name_str,
+                artifact_type_str=artifact_type_str_val,
+                content_to_stream=content_to_save
+            )
+            if save_result:
+                saved_artifact_id, saved_version_id = save_result
+                print(f"Artifact content from node {node_name} saved. Artifact ID: {saved_artifact_id}, Version ID: {saved_version_id}")
+            else:
+                print(f"Failed to save artifact content from node {node_name} for {artifact_name_str}")
+
+        except ValueError as e:
+            print(f"Error converting IDs in node {node_name}: {e}")
+        except Exception as e:
+            print(f"An unexpected error occurred during artifact saving in node {node_name}: {e}")
+    else:
+        missing_configs = []
+        if not session_service: missing_configs.append("session_service")
+        if not user_id_str: missing_configs.append("supabase_user_id")
+        if not session_id_str: missing_configs.append("thread_id (for session_id)")
+        print(f"Could not save artifact content from {node_name} because some configurations are missing: {', '.join(missing_configs)}")
+    # --- End Artifact Saving Logic for rewrite_artifact_theme ---
 
     return update_dict
 
@@ -869,6 +1020,48 @@ async def rewrite_code_artifact_theme(state: OpenCanvasState, config: Optional[D
     if field_to_reset:
         return_dict[field_to_reset] = None
 
+    # --- Begin Artifact Saving Logic for rewrite_code_artifact_theme ---
+    session_service: Optional[SessionService] = graph_config.get("session_service")
+    user_id_str: Optional[str] = graph_config.get("supabase_user_id")
+    session_id_str: Optional[str] = graph_config.get("thread_id")
+
+    node_name = "rewrite_code_artifact_theme"
+    if session_service and user_id_str and session_id_str:
+        try:
+            user_id = uuid.UUID(user_id_str)
+            session_id = uuid.UUID(session_id_str)
+
+            content_to_save = actual_artifact_text_response
+            artifact_name_str = current_code_artifact.title
+            artifact_type_str_val = ArtifactType.CODE.value # This node only handles code
+
+            print(f"Attempting to save artifact via stream from node {node_name}: user_id={user_id}, session_id={session_id}, name={artifact_name_str}, type={artifact_type_str_val}")
+
+            save_result = await session_service.save_artifact_content_streamed(
+                user_id=user_id,
+                session_id=session_id,
+                artifact_name=artifact_name_str,
+                artifact_type_str=artifact_type_str_val,
+                content_to_stream=content_to_save
+            )
+            if save_result:
+                saved_artifact_id, saved_version_id = save_result
+                print(f"Artifact content from node {node_name} saved. Artifact ID: {saved_artifact_id}, Version ID: {saved_version_id}")
+            else:
+                print(f"Failed to save artifact content from node {node_name} for {artifact_name_str}")
+
+        except ValueError as e:
+            print(f"Error converting IDs in node {node_name}: {e}")
+        except Exception as e:
+            print(f"An unexpected error occurred during artifact saving in node {node_name}: {e}")
+    else:
+        missing_configs = []
+        if not session_service: missing_configs.append("session_service")
+        if not user_id_str: missing_configs.append("supabase_user_id")
+        if not session_id_str: missing_configs.append("thread_id (for session_id)")
+        print(f"Could not save artifact content from {node_name} because some configurations are missing: {', '.join(missing_configs)}")
+    # --- End Artifact Saving Logic for rewrite_code_artifact_theme ---
+
     return return_dict
 
 
@@ -1001,6 +1194,49 @@ async def custom_action(state: OpenCanvasState, config: Optional[Dict[str, Any]]
         currentIndex=new_index,
         contents=updated_artifact_contents
     )
+
+    # --- Begin Artifact Saving Logic for custom_action ---
+    session_service: Optional[SessionService] = graph_config.get("session_service")
+    user_id_str: Optional[str] = graph_config.get("supabase_user_id")
+    session_id_str: Optional[str] = graph_config.get("thread_id")
+
+    node_name = "custom_action"
+    if current_artifact_content_model and session_service and user_id_str and session_id_str: # Check if artifact exists
+        try:
+            user_id = uuid.UUID(user_id_str)
+            session_id = uuid.UUID(session_id_str)
+
+            content_to_save = llm_response_content
+            artifact_name_str = current_artifact_content_model.title
+            artifact_type_str_val = current_artifact_content_model.type.value
+
+            print(f"Attempting to save artifact via stream from node {node_name}: user_id={user_id}, session_id={session_id}, name={artifact_name_str}, type={artifact_type_str_val}")
+
+            save_result = await session_service.save_artifact_content_streamed(
+                user_id=user_id,
+                session_id=session_id,
+                artifact_name=artifact_name_str,
+                artifact_type_str=artifact_type_str_val,
+                content_to_stream=content_to_save
+            )
+            if save_result:
+                saved_artifact_id, saved_version_id = save_result
+                print(f"Artifact content from node {node_name} saved. Artifact ID: {saved_artifact_id}, Version ID: {saved_version_id}")
+            else:
+                print(f"Failed to save artifact content from node {node_name} for {artifact_name_str}")
+        except ValueError as e:
+            print(f"Error converting IDs in node {node_name}: {e}")
+        except Exception as e:
+            print(f"An unexpected error occurred during artifact saving in node {node_name}: {e}")
+    elif current_artifact_content_model: # Artifact exists but service/config missing
+        missing_configs = []
+        if not session_service: missing_configs.append("session_service")
+        if not user_id_str: missing_configs.append("supabase_user_id")
+        if not session_id_str: missing_configs.append("thread_id (for session_id)")
+        if missing_configs: # Only print if there are actual missing configs for an existing artifact
+             print(f"Could not save artifact content from {node_name} because some configurations are missing: {', '.join(missing_configs)}")
+    # No special message if no artifact existed in the first place, as nothing to save.
+    # --- End Artifact Saving Logic for custom_action ---
 
     return {
         "artifact": final_artifact_v3,
@@ -1154,6 +1390,48 @@ async def update_artifact(state: OpenCanvasState, config: Optional[Dict[str, Any
     }
     # This node, per TS, does not add its own AIMessage about the update to the chat.
     # It just updates the artifact and resets highlightedCode.
+
+    # --- Begin Artifact Saving Logic for update_artifact ---
+    session_service: Optional[SessionService] = graph_config.get("session_service") # graph_config is from the top of the node
+    user_id_str: Optional[str] = graph_config.get("supabase_user_id")
+    session_id_str: Optional[str] = graph_config.get("thread_id")
+
+    node_name = "update_artifact"
+    if session_service and user_id_str and session_id_str:
+        try:
+            user_id = uuid.UUID(user_id_str)
+            session_id = uuid.UUID(session_id_str)
+
+            content_to_save = entire_updated_code
+            artifact_name_str = current_code_artifact.title # current_code_artifact is defined in this node
+            artifact_type_str_val = ArtifactType.CODE.value # This node handles code
+
+            print(f"Attempting to save artifact via stream from node {node_name}: user_id={user_id}, session_id={session_id}, name={artifact_name_str}, type={artifact_type_str_val}")
+
+            save_result = await session_service.save_artifact_content_streamed(
+                user_id=user_id,
+                session_id=session_id,
+                artifact_name=artifact_name_str,
+                artifact_type_str=artifact_type_str_val,
+                content_to_stream=content_to_save
+            )
+            if save_result:
+                saved_artifact_id, saved_version_id = save_result
+                print(f"Artifact content from node {node_name} saved. Artifact ID: {saved_artifact_id}, Version ID: {saved_version_id}")
+            else:
+                print(f"Failed to save artifact content from node {node_name} for {artifact_name_str}")
+        except ValueError as e:
+            print(f"Error converting IDs in node {node_name}: {e}")
+        except Exception as e:
+            print(f"An unexpected error occurred during artifact saving in node {node_name}: {e}")
+    else:
+        missing_configs = []
+        if not session_service: missing_configs.append("session_service")
+        if not user_id_str: missing_configs.append("supabase_user_id")
+        if not session_id_str: missing_configs.append("thread_id (for session_id)")
+        print(f"Could not save artifact content from {node_name} because some configurations are missing: {', '.join(missing_configs)}")
+    # --- End Artifact Saving Logic for update_artifact ---
+
     return return_dict
 
 
@@ -1313,6 +1591,48 @@ async def update_highlighted_text(state: OpenCanvasState, config: Optional[Dict[
         "artifact": final_artifact_v3,
         "highlightedText": None
     }
+
+    # --- Begin Artifact Saving Logic for update_highlighted_text ---
+    session_service: Optional[SessionService] = graph_config.get("session_service") # graph_config from top of node
+    user_id_str: Optional[str] = graph_config.get("supabase_user_id")
+    session_id_str: Optional[str] = graph_config.get("thread_id")
+
+    node_name = "update_highlighted_text"
+    if session_service and user_id_str and session_id_str:
+        try:
+            user_id = uuid.UUID(user_id_str)
+            session_id = uuid.UUID(session_id_str)
+
+            content_to_save = new_full_artifact_markdown
+            artifact_name_str = current_markdown_artifact.title # current_markdown_artifact defined in this node
+            artifact_type_str_val = ArtifactType.TEXT.value # This node handles text
+
+            print(f"Attempting to save artifact via stream from node {node_name}: user_id={user_id}, session_id={session_id}, name={artifact_name_str}, type={artifact_type_str_val}")
+
+            save_result = await session_service.save_artifact_content_streamed(
+                user_id=user_id,
+                session_id=session_id,
+                artifact_name=artifact_name_str,
+                artifact_type_str=artifact_type_str_val,
+                content_to_stream=content_to_save
+            )
+            if save_result:
+                saved_artifact_id, saved_version_id = save_result
+                print(f"Artifact content from node {node_name} saved. Artifact ID: {saved_artifact_id}, Version ID: {saved_version_id}")
+            else:
+                print(f"Failed to save artifact content from node {node_name} for {artifact_name_str}")
+        except ValueError as e:
+            print(f"Error converting IDs in node {node_name}: {e}")
+        except Exception as e:
+            print(f"An unexpected error occurred during artifact saving in node {node_name}: {e}")
+    else:
+        missing_configs = []
+        if not session_service: missing_configs.append("session_service")
+        if not user_id_str: missing_configs.append("supabase_user_id")
+        if not session_id_str: missing_configs.append("thread_id (for session_id)")
+        print(f"Could not save artifact content from {node_name} because some configurations are missing: {', '.join(missing_configs)}")
+    # --- End Artifact Saving Logic for update_highlighted_text ---
+
     return return_dict
 
 async def update_highlighted_text(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]: # type: ignore

@@ -1,6 +1,6 @@
 # app/services/session_service.py
 import uuid
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, AsyncIterator, Tuple
 from app.db.unit_of_work import UnitOfWork
 from app.schemas.session import (
     Session, SessionCreate, SessionUpdate,
@@ -299,4 +299,198 @@ class SessionService:
             return []
         except Exception as e:
             print(f"Error in SessionService.get_artifact_versions: {e}")
+            return []
+
+    async def get_or_create_artifact_and_version(
+        self, *,
+        session_id: uuid.UUID,
+        artifact_name: str,
+        artifact_type: str,
+        user_id: uuid.UUID, # Currently unused directly on artifact, consider for logging/auth
+        langgraph_output_reference: Optional[Dict[str, Any]] = None,
+        version_notes: Optional[str] = None
+    ) -> Optional[uuid.UUID]:
+        '''
+        Retrieves an existing artifact or creates a new one, then creates a new version for it.
+        Returns the ID of the newly created ArtifactVersion, or None on failure.
+        '''
+        async with self.uow:
+            try:
+                # Attempt to find an existing artifact
+                # Assuming get_multi_by_attributes can take a dict of attributes
+                artifacts = await self.uow.artifacts.get_multi_by_attributes(
+                    attributes={
+                        "session_id": session_id,
+                        "name": artifact_name,
+                        "type": artifact_type
+                    },
+                    limit=1 # Expecting at most one
+                )
+
+                artifact: Optional[Artifact] = None
+                if artifacts:
+                    artifact = artifacts[0]
+
+                if not artifact:
+                    # Create a new artifact if not found
+                    artifact_create = ArtifactCreate(
+                        session_id=session_id,
+                        name=artifact_name,
+                        type=artifact_type
+                    )
+                    artifact = await self.uow.artifacts.create(obj_in=artifact_create)
+
+                if not artifact or not artifact.id: # Ensure artifact and its ID are valid
+                    # This case should ideally not be reached if creation/retrieval was successful
+                    print(f"Error: Failed to retrieve or create artifact for session {session_id}, name {artifact_name}")
+                    return None
+
+                # Determine the next version number
+                existing_versions = await self.uow.artifact_versions.get_multi_by_attribute(
+                    attribute="artifact_id", value=artifact.id, limit=10000 # Large limit for versions
+                )
+                next_version_number = 1
+                if existing_versions:
+                    next_version_number = max(v.version_number for v in existing_versions) + 1
+
+                # Create the new artifact version
+                version_create = ArtifactVersionCreate(
+                    artifact_id=artifact.id,
+                    version_number=next_version_number,
+                    langgraph_output_reference=langgraph_output_reference,
+                    notes=version_notes
+                )
+                new_artifact_version = await self.uow.artifact_versions.create(obj_in=version_create)
+
+                if not new_artifact_version or not new_artifact_version.id:
+                    print(f"Error: Failed to create artifact version for artifact {artifact.id}")
+                    return None
+
+                return new_artifact_version.id
+
+            except Exception as e:
+                # Log the exception e here, potentially with more context
+                print(f"Error in SessionService.get_or_create_artifact_and_version: {e}")
+                # Consider specific exception handling if BaseRepository raises known exceptions
+                return None
+
+    async def get_artifact_chunks_stream(
+        self, *,
+        artifact_version_id: uuid.UUID
+    ) -> AsyncIterator[str]:
+        '''
+        Retrieves artifact chunks for a given artifact version ID as an async stream.
+        Chunks are yielded in order.
+        '''
+        try:
+            # Retrieve all chunks for the given artifact_version_id
+            # Using a large limit, assuming all chunks for a version fit reasonably in memory for sorting.
+            # Adjust if dealing with extremely large numbers of chunks per version.
+            artifact_chunks = await self.uow.artifact_chunks.get_multi_by_attribute(
+                attribute="artifact_version_id",
+                value=artifact_version_id,
+                limit=10000  # Consider making this configurable or dynamic if necessary
+            )
+
+            if not artifact_chunks:
+                # If no chunks are found, the iterator will simply be empty.
+                # This is valid and indicates either no content or an invalid artifact_version_id.
+                pass # Explicitly noting that an empty iterator is the correct behavior.
+
+            # Sort chunks by chunk_order
+            sorted_chunks = sorted(artifact_chunks, key=lambda chunk: chunk.chunk_order)
+
+            for chunk in sorted_chunks:
+                yield chunk.content_chunk
+
+        except Exception as e:
+            # Log the exception e here
+            print(f"Error in SessionService.get_artifact_chunks_stream for version {artifact_version_id}: {e}")
+            # Depending on desired behavior, could raise an exception or yield an error marker.
+            # For now, it will stop iteration on error.
+            # To make it robust, you might want to handle specific DB exceptions if the repo layer throws them.
+            pass # Ensure the generator exits cleanly
+
+    async def save_artifact_content_streamed(
+        self, *,
+        user_id: uuid.UUID,
+        session_id: uuid.UUID,
+        artifact_name: str,
+        artifact_type_str: str, # e.g., "code" or "text"
+        content_to_stream: str,
+        version_notes: Optional[str] = None,
+        langgraph_output_reference: Optional[Dict[str, Any]] = None
+    ) -> Optional[Tuple[uuid.UUID, uuid.UUID]]:
+        # Ensure artifact_type_str is valid if it needs to map to an enum later,
+        # but get_or_create_artifact_and_version takes type as string.
+
+        artifact_version_id = await self.get_or_create_artifact_and_version(
+            session_id=session_id,
+            artifact_name=artifact_name,
+            artifact_type=artifact_type_str, # Ensure this matches what get_or_create_artifact_and_version expects
+            user_id=user_id, # Pass user_id
+            version_notes=version_notes,
+            langgraph_output_reference=langgraph_output_reference
+        )
+
+        if not artifact_version_id:
+            print(f"Failed to get or create artifact version for {artifact_name}")
+            return None
+
+        # Fetch the version to get the artifact_id for the response
+        artifact_version_obj = await self.get_artifact_version_by_id(artifact_version_id=artifact_version_id)
+        if not artifact_version_obj:
+            print(f"Failed to fetch artifact version {artifact_version_id} to get artifact_id")
+            return None
+
+        artifact_id_for_response = artifact_version_obj.artifact_id
+
+        CHUNK_SIZE = 4096  # Define a reasonable chunk size (e.g., 4KB)
+        chunk_order = 0
+        try:
+            if not content_to_stream: # Handle explicitly empty content by saving one empty chunk
+                 await self.add_chunk_to_artifact_version(
+                    artifact_version_id=artifact_version_id,
+                    content_chunk="",
+                    chunk_order=0
+                )
+                 chunk_order = 1 # Mark that one chunk was "saved"
+            else:
+                for i in range(0, len(content_to_stream), CHUNK_SIZE):
+                    chunk_content = content_to_stream[i:i + CHUNK_SIZE]
+                    await self.add_chunk_to_artifact_version(
+                        artifact_version_id=artifact_version_id,
+                        content_chunk=chunk_content,
+                        chunk_order=chunk_order
+                    )
+                    chunk_order += 1
+
+            print(f"Successfully streamed {chunk_order} chunks for artifact_version_id: {artifact_version_id}")
+            return (artifact_id_for_response, artifact_version_id)
+        except Exception as e:
+            print(f"Error streaming chunks for artifact_version_id {artifact_version_id}: {e}")
+            # Consider cleanup logic here if needed (e.g., deleting the version if chunks failed)
+            return None
+
+    async def get_artifacts_by_session_id(
+        self, *,
+        session_id: uuid.UUID
+    ) -> List[Artifact]:
+        '''
+        Retrieves all artifacts associated with a given session ID.
+        Returns a list of Artifact objects, or an empty list if none are found.
+        '''
+        try:
+            artifacts = await self.uow.artifacts.get_multi_by_attribute(
+                attribute="session_id",
+                value=session_id,
+                limit=1000 # Default reasonable limit, adjust as needed
+            )
+            return artifacts if artifacts else []
+        except NotImplementedError: # Specific for repository methods not implemented
+            print(f"SessionService.get_artifacts_by_session_id: Repository method not implemented for session {session_id}.")
+            return []
+        except Exception as e:
+            # Log the exception e here
+            print(f"Error in SessionService.get_artifacts_by_session_id for session {session_id}: {e}")
             return []

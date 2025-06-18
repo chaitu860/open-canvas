@@ -12,13 +12,21 @@ from schemas.agent import (
 )
 from typing import Any, Dict, Optional
 import uuid
-from services.agent_service import AgentService # Import AgentService
+from app.services.agent_service import AgentService # Import AgentService
+from app.services.session_service import SessionService # Import SessionService
+from app.api.dependencies import get_session_service # Import get_session_service
+from fastapi import Depends # Import Depends
 from fastapi.responses import StreamingResponse
 import json # For SSE streaming
 from langchain_core.messages import HumanMessage # To create initial message for graph
 
 router = APIRouter()
-agent_service_instance = AgentService() # Instantiate the service
+
+# Changed AgentService instantiation to be a FastAPI dependency
+def get_agent_service(
+    session_service: SessionService = Depends(get_session_service)
+) -> AgentService:
+    return AgentService(session_service=session_service)
 
 def serialize_event(obj):
     """
@@ -41,6 +49,7 @@ def serialize_event(obj):
 @router.post("/invoke")
 async def invoke_agent(
     payload: AgentInvokeRequest = Body(...),
+    agent_service: AgentService = Depends(get_agent_service) # Get AgentService via dependency
     # assistant_id and thread_id are now primarily derived from payload.config.configurable
     # or defaults if not provided there.
 ):
@@ -89,7 +98,7 @@ async def invoke_agent(
             graph_invoke_payload["systemPrompt"] = payload.config["systemPrompt"]
 
     async def event_publisher():
-        async for event in agent_service_instance.invoke_agent_stream(
+        async for event in agent_service.invoke_agent_stream( # Use agent_service (from Depends)
             graph_input_payload=graph_invoke_payload,
             assistant_id=assistant_id,
             thread_id=thread_id,

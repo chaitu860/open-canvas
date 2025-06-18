@@ -2,6 +2,7 @@
 import os
 import json # For robust metadata handling
 from typing import Dict, Any, Optional, AsyncIterator, List
+from app.services.session_service import SessionService # Import SessionService
 # from langgraph.checkpoint.sqlite import SqliteSaver
 from agents.open_canvas import open_canvas_graph_app, OpenCanvasState # Import the compiled app and state type
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
@@ -24,8 +25,9 @@ print(f"Agent service: Using SQLite checkpointer at {SQLITE_PATH}")
 open_canvas_app_with_checkpoint = open_canvas_graph_app
 
 class AgentService:
-    def __init__(self, app_with_checkpoint = open_canvas_app_with_checkpoint):
+    def __init__(self, session_service: SessionService, app_with_checkpoint = open_canvas_app_with_checkpoint): # Add session_service
         self.graph_app = app_with_checkpoint
+        self.session_service = session_service # Store session_service
 
     async def invoke_agent_stream(
         self,
@@ -74,6 +76,8 @@ class AgentService:
                 # unless a more specific handling strategy is needed.
                 elif key not in final_configurable:
                     final_configurable[key] = value
+
+        final_configurable["session_service"] = self.session_service # Add session_service to configurable
 
         run_config = {"configurable": final_configurable}
 
