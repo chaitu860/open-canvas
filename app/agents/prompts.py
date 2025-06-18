@@ -205,3 +205,191 @@ Ensure your output is only the new artifact content itself.
 If the artifact is code, do NOT include triple backticks in the output.
 If the artifact is text, use Markdown.
 """
+
+# Prompts for rewrite_artifact_theme node
+CHANGE_ARTIFACT_LANGUAGE_PROMPT = """You are an AI assistant. The user wants to change the language of the following artifact to {newLanguage}.
+Please rewrite the artifact in {newLanguage}.
+
+Reflections on user style and facts:
+<reflections>
+{reflections}
+</reflections>
+
+Current artifact content:
+<artifactContent>
+{artifactContent}
+</artifactContent>
+
+Output ONLY the rewritten artifact content in {newLanguage}.
+"""
+
+CHANGE_ARTIFACT_READING_LEVEL_PROMPT = """You are an AI assistant. The user wants to change the reading level of the following artifact to be suitable for a {newReadingLevel}.
+Please rewrite the artifact accordingly.
+
+Reflections on user style and facts:
+<reflections>
+{reflections}
+</reflections>
+
+Current artifact content:
+<artifactContent>
+{artifactContent}
+</artifactContent>
+
+Output ONLY the rewritten artifact content.
+"""
+
+CHANGE_ARTIFACT_TO_PIRATE_PROMPT = """You are an AI assistant. The user wants to change the style of the following artifact to be in the style of a pirate.
+Please rewrite the artifact as if a pirate wrote it. Make it fun and engaging.
+
+Reflections on user style and facts:
+<reflections>
+{reflections}
+</reflections>
+
+Current artifact content:
+<artifactContent>
+{artifactContent}
+</artifactContent>
+
+Output ONLY the rewritten artifact content in a pirate style.
+"""
+
+CHANGE_ARTIFACT_LENGTH_PROMPT = """You are an AI assistant. The user wants to change the length of the following artifact to be {newLength}.
+Please rewrite the artifact accordingly.
+
+Reflections on user style and facts:
+<reflections>
+{reflections}
+</reflections>
+
+Current artifact content:
+<artifactContent>
+{artifactContent}
+</artifactContent>
+
+Output ONLY the rewritten artifact content with the new length.
+"""
+
+ADD_EMOJIS_TO_ARTIFACT_PROMPT = """You are an AI assistant. The user wants to add emojis to the following artifact.
+Please rewrite the artifact and tastefully include relevant emojis throughout the text to make it more engaging.
+
+Reflections on user style and facts:
+<reflections>
+{reflections}
+</reflections>
+
+Current artifact content:
+<artifactContent>
+{artifactContent}
+</artifactContent>
+
+Output ONLY the rewritten artifact content with emojis added.
+"""
+
+# Prompts for rewrite_code_artifact_theme node
+ADD_COMMENTS_TO_CODE_ARTIFACT_PROMPT = """You are an AI assistant. The user wants to add comments to the following code artifact.
+Please analyze the code and add insightful comments where appropriate to explain complex parts, logic, or functionality.
+Do not change the code itself, only add comments.
+
+Current code artifact:
+<artifactContent>
+{artifactContent}
+</artifactContent>
+
+Output ONLY the code artifact with comments added.
+"""
+
+ADD_LOGS_TO_CODE_ARTIFACT_PROMPT = """You are an AI assistant. The user wants to add logging statements to the following code artifact.
+Please analyze the code and add relevant logging statements (e.g., for variable values, function entry/exit, error catching).
+Use standard logging practices for the language of the code. Do not significantly alter the existing code logic.
+
+Current code artifact:
+<artifactContent>
+{artifactContent}
+</artifactContent>
+
+Output ONLY the code artifact with logging statements added.
+"""
+
+FIX_BUGS_CODE_ARTIFACT_PROMPT = """You are an AI assistant. The user believes there might be bugs in the following code artifact and wants you to fix them.
+Please analyze the code for potential bugs (e.g., syntax errors, logical errors, runtime errors, security vulnerabilities) and provide a corrected version.
+If you find and fix bugs, briefly explain the fix in comments if the change is not obvious. If no bugs are apparent, explain why you think the code is correct and return the original code.
+
+Current code artifact:
+<artifactContent>
+{artifactContent}
+</artifactContent>
+
+Output ONLY the corrected code artifact (or original if no bugs found).
+"""
+
+PORT_LANGUAGE_CODE_ARTIFACT_PROMPT = """You are an AI assistant. The user wants to port the following code artifact to {newLanguage}.
+Please translate the code from its current language to {newLanguage}, maintaining the original functionality and logic as closely as possible.
+Pay attention to language-specific conventions and best practices in {newLanguage}.
+
+Current code artifact:
+<artifactContent>
+{artifactContent}
+</artifactContent>
+
+Output ONLY the ported code artifact in {newLanguage}.
+"""
+
+# Prompts for custom_action node
+REFLECTIONS_QUICK_ACTION_PROMPT = """
+The following are reflections on how you should behave, and general memories/facts about the user. You should use these to help you generate your response:
+<reflections>
+{reflections}
+</reflections>
+"""
+
+CUSTOM_QUICK_ACTION_ARTIFACT_PROMPT_PREFIX = """You are an AI assistant. The user has invoked a custom action on an artifact.
+Below is the context for the action, including the artifact content, custom instructions, and optionally reflections and recent conversation history.
+Your task is to generate a new version of the artifact based on all this information.
+Output ONLY the new artifact content. Do not include any other explanatory text.
+If the artifact is code, do not include triple backticks. If it's text, use Markdown.
+"""
+
+CUSTOM_QUICK_ACTION_CONVERSATION_CONTEXT = """
+Here is the recent conversation history for context:
+<conversation>
+{conversation}
+</conversation>
+"""
+
+CUSTOM_QUICK_ACTION_ARTIFACT_CONTENT_PROMPT = """
+The current artifact content is:
+<artifactContent>
+{artifactContent}
+</artifactContent>
+"""
+
+# Prompt for update_artifact node (editing highlighted code)
+UPDATE_HIGHLIGHTED_ARTIFACT_PROMPT = """You are an AI assistant. The user has highlighted a section of their code artifact and wants to update it based on their request.
+Your task is to rewrite ONLY the highlighted section of the code. Do NOT output the entire code artifact.
+ONLY output the new code for the highlighted section.
+
+Context before the highlight:
+<beforeHighlight>
+{beforeHighlight}
+</beforeHighlight>
+
+Highlighted code to be updated:
+<highlightedText>
+{highlightedText}
+</highlightedText>
+
+Context after the highlight:
+<afterHighlight>
+{afterHighlight}
+</afterHighlight>
+
+Reflections on user style and facts:
+<reflections>
+{reflections}
+</reflections>
+
+The user's request for changes to the highlighted code will be the last message in the chat history provided to you.
+Based on that request, rewrite the highlighted code section.
+"""

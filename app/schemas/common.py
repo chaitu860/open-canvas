@@ -86,3 +86,11 @@ class DocumentInterface(BaseModel):
 
 class SearchResult(DocumentInterface): # Alias for clarity
     pass
+
+class CustomQuickAction(BaseModel):
+    id: str
+    title: str
+    prompt: str # This is the user-defined prompt for the custom action
+    includeReflections: bool
+    includePrefix: bool # Whether to include the standard CUSTOM_QUICK_ACTION_ARTIFACT_PROMPT_PREFIX
+    includeRecentHistory: bool

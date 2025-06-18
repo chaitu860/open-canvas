@@ -538,7 +538,780 @@ async def rewrite_artifact(state: OpenCanvasState, config: Optional[Dict[str, An
     return update_dict
 
 
+async def rewrite_artifact_theme(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    print("Executing Node: rewrite_artifact_theme")
+    if config is None: config = {}
+    # graph_config should be the 'configurable' part for helpers
+    graph_config = config.get("configurable", {})
+
+
+    model_details = get_model_config(graph_config)
+    model_name = model_details.get("model_name", "unknown_model")
+    llm = await get_model_from_config(graph_config)
+
+    memories_as_string = await get_formatted_reflections(graph_config) # Placeholder
+
+    current_artifact_content_model = get_artifact_content(state.get("artifact"))
+    if not current_artifact_content_model:
+        # This should ideally be prevented by routing logic if no artifact exists.
+        error_message = AIMessage(content="Cannot rewrite artifact theme: No artifact found in state.")
+        return {"messages": [error_message], "_messages": state.get("_messages", []) + [error_message]} # type: ignore
+
+    if current_artifact_content_model.type != ArtifactType.TEXT:
+        error_message = AIMessage(content=f"Cannot rewrite artifact theme: Artifact is not text-based (type: {current_artifact_content_model.type}).")
+        return {"messages": [error_message], "_messages": state.get("_messages", []) + [error_message]} # type: ignore
+
+    current_markdown_artifact: ArtifactMarkdownV3 = current_artifact_content_model # type: ignore
+
+    formatted_prompt = ""
+    # State fields that trigger this node, e.g., state.language, state.readingLevel, etc.
+    state_lang: Optional[LanguageOptions] = state.get("language")
+    state_reading_level: Optional[ReadingLevelOptions] = state.get("readingLevel")
+    state_artifact_length: Optional[ArtifactLengthOptions] = state.get("artifactLength")
+    state_regen_emojis: Optional[bool] = state.get("regenerateWithEmojis")
+
+    # Import prompts if not already at top level (ensure they are available)
+    from app.agents.prompts import (
+        CHANGE_ARTIFACT_LANGUAGE_PROMPT,
+        CHANGE_ARTIFACT_READING_LEVEL_PROMPT,
+        CHANGE_ARTIFACT_TO_PIRATE_PROMPT,
+        CHANGE_ARTIFACT_LENGTH_PROMPT,
+        ADD_EMOJIS_TO_ARTIFACT_PROMPT
+    )
+
+    if state_lang:
+        formatted_prompt = CHANGE_ARTIFACT_LANGUAGE_PROMPT.format(
+            newLanguage=state_lang.value,
+            artifactContent=current_markdown_artifact.fullMarkdown,
+            reflections=memories_as_string
+        )
+    elif state_reading_level and state_reading_level == ReadingLevelOptions.PIRATE: # Pirate needs to be checked before general reading level
+        formatted_prompt = CHANGE_ARTIFACT_TO_PIRATE_PROMPT.format(
+            artifactContent=current_markdown_artifact.fullMarkdown,
+            reflections=memories_as_string
+        )
+    elif state_reading_level:
+        level_description = {
+            ReadingLevelOptions.CHILD: "an elementary school student", # More natural phrasing
+            ReadingLevelOptions.TEENAGER: "a high school student",
+            ReadingLevelOptions.COLLEGE: "a college student",
+            ReadingLevelOptions.PHD: "a PhD student or expert in the field",
+        }.get(state_reading_level, "a general audience")
+
+        formatted_prompt = CHANGE_ARTIFACT_READING_LEVEL_PROMPT.format(
+            newReadingLevel=level_description,
+            artifactContent=current_markdown_artifact.fullMarkdown,
+            reflections=memories_as_string
+        )
+    elif state_artifact_length:
+        length_description = {
+            ArtifactLengthOptions.SHORTEST: "significantly shorter, focusing only on the absolute key points",
+            ArtifactLengthOptions.SHORT: "somewhat shorter and more concise",
+            ArtifactLengthOptions.LONG: "somewhat longer with more detail or explanation",
+            ArtifactLengthOptions.LONGEST: "significantly longer, expanding greatly on concepts with examples",
+        }.get(state_artifact_length, "of a different length than it currently is")
+
+        formatted_prompt = CHANGE_ARTIFACT_LENGTH_PROMPT.format(
+            newLength=length_description,
+            artifactContent=current_markdown_artifact.fullMarkdown,
+            reflections=memories_as_string
+        )
+    elif state_regen_emojis is True: # Explicitly check for True
+        formatted_prompt = ADD_EMOJIS_TO_ARTIFACT_PROMPT.format(
+            artifactContent=current_markdown_artifact.fullMarkdown,
+            reflections=memories_as_string
+        )
+    else:
+        # If no specific theme change is identified, this node might have been routed incorrectly.
+        error_message = AIMessage(content="Cannot rewrite artifact theme: No relevant theme modification option was specified.")
+        return {"messages": [error_message], "_messages": state.get("_messages", []) + [error_message]} # type: ignore
+
+    response_ai_message = await llm.ainvoke([HumanMessage(content=formatted_prompt)], {"run_name": "rewrite_artifact_theme_llm_call"})
+
+    thinking_message_for_state: Optional[AIMessage] = None
+    actual_artifact_text_response = response_ai_message.content
+    if not isinstance(actual_artifact_text_response, str):
+        actual_artifact_text_response = str(actual_artifact_text_response)
+
+    if is_thinking_model(model_name):
+        extracted = extract_thinking_and_response_tokens(actual_artifact_text_response)
+        if extracted["thinking"]:
+            thinking_message_for_state = AIMessage(
+                id=f"thinking-{uuid.uuid4()}",
+                content=extracted["thinking"],
+                additional_kwargs={"oc_hide_from_ui": True}
+                )
+        actual_artifact_text_response = extracted["response"]
+
+    existing_artifact_v3: Optional[ArtifactV3] = state.get("artifact")
+    if not existing_artifact_v3: # Should be caught by earlier check
+         error_message = AIMessage(content="Critical error: Original artifact missing during theme rewrite.")
+         return {"messages": [error_message], "_messages": state.get("_messages", []) + [error_message]} # type: ignore
+
+    # Create new content item (copy of current, but with new text and index)
+    new_markdown_content_item = ArtifactMarkdownV3(
+        index=len(existing_artifact_v3.contents),
+        type=ArtifactType.TEXT,
+        title=current_markdown_artifact.title, # Title remains the same
+        fullMarkdown=actual_artifact_text_response
+    )
+
+    updated_artifact_contents = list(existing_artifact_v3.contents) + [new_markdown_content_item]
+
+    final_artifact_v3 = ArtifactV3(
+        currentIndex=len(updated_artifact_contents) - 1,
+        contents=updated_artifact_contents
+    )
+
+    update_dict: Dict[str, Any] = {"artifact": final_artifact_v3}
+    # Reset the state field that triggered this rewrite
+    if state_lang: update_dict["language"] = None
+    if state_reading_level: update_dict["readingLevel"] = None
+    if state_artifact_length: update_dict["artifactLength"] = None
+    if state_regen_emojis: update_dict["regenerateWithEmojis"] = None
+
+    if thinking_message_for_state:
+        update_dict["messages"] = [thinking_message_for_state]
+        update_dict["_messages"] = [thinking_message_for_state]
+
+    return update_dict
+
+
+async def generate_followup(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    print("Executing Node: generate_followup")
+    if config is None: config = {}
+    # graph_config should be the 'configurable' part of RunnableConfig
+    graph_config = config.get("configurable", {})
+
+
+    # Pass max_tokens and is_tool_calling to influence model choice/behavior as in TS
+    # The 'is_tool_calling' here might be a heuristic from TS to get a certain type of model
+    # or behavior, not necessarily to force a tool call in *this* node.
+    llm = await get_model_from_config(graph_config, extra={"max_tokens": 250, "is_tool_calling": True})
+
+    # Placeholder for reflections. The TS version calls formatReflections with { onlyContent: true }.
+    # The current Python placeholder get_formatted_reflections doesn't have this option.
+    # This might mean the reflections string includes more than just content, which could affect the prompt.
+    # For now, using the existing general placeholder.
+    memories_as_string = await get_formatted_reflections(graph_config)
+
+    current_artifact_content_model = get_artifact_content(state.get("artifact"))
+    artifact_content_str = "User has not generated an artifact yet." # Default if no artifact
+    if current_artifact_content_model:
+        if current_artifact_content_model.type == ArtifactType.CODE and isinstance(current_artifact_content_model, ArtifactCodeV3):
+            artifact_content_str = current_artifact_content_model.code
+        elif isinstance(current_artifact_content_model, ArtifactMarkdownV3): # TEXT
+            artifact_content_str = current_artifact_content_model.fullMarkdown
+
+    # Format entire message history from _messages for the prompt
+    # The TS version uses a specific format for messages in the prompt.
+    # _format_messages_for_custom_action_prompt creates <type>...</type> blocks.
+    # FOLLOWUP_ARTIFACT_PROMPT has {conversation} and also {lastMessage} in TS,
+    # but the Python version from prompts.py seems to only have {conversation}.
+    # Let's ensure FOLLOWUP_ARTIFACT_PROMPT is suitable for _format_messages_for_custom_action_prompt output.
+    # The current FOLLOWUP_ARTIFACT_PROMPT in Python has {{artifact}} and {{lastMessage}} and {{reflections}}.
+    # It does NOT have a {{conversation}} placeholder. This needs alignment.
+
+    # Re-checking the Python FOLLOWUP_ARTIFACT_PROMPT from prompts.py:
+    # FOLLOWUP_ARTIFACT_PROMPT = f"""You are an AI assistant tasked with generating a follow-up question...
+    # Current artifact:\n<artifact>\n{{artifact}}\n</artifact>\n\nUser's last message:\n<user-message>\n{{lastMessage}}\n</user-message>..."""
+    # This means we need the *last message* specifically, not the whole history formatted.
+
+    last_message_str = "No previous messages."
+    if state.get("_messages"):
+        # The prompt asks for "User's last message". So, find the last actual message, not system/hidden ones.
+        # However, the TS logic for `generateFollowup` prompt just takes the entire history.
+        # The Python prompt `FOLLOWUP_ARTIFACT_PROMPT` was ported from a different TS prompt (`FOLLOWUP_PROMPT` from `generateFollowup.ts`)
+        # which has `lastMessage` placeholder, not `conversation`.
+        # The TS node `generateFollowup` uses `FOLLOWUP_PROMPT` with `lastMessage: state.messages[state.messages.length -1].content`
+
+        # Let's align with the Python prompt for now, which expects 'lastMessage'.
+        # We should probably use the last message from `state.messages` (user-visible) if that's the intent.
+        # Or, if it's the last message from `_messages` (internal history):
+
+        # For now, using last from _messages for simplicity, but this might need refinement.
+        last_msg_obj = state.get("_messages", [])[-1] if state.get("_messages") else None
+        if last_msg_obj:
+            last_message_str = get_string_from_content(last_msg_obj.content)
+
+    from app.agents.prompts import FOLLOWUP_ARTIFACT_PROMPT # Ensure it's imported
+
+    prompt_str = FOLLOWUP_ARTIFACT_PROMPT.format( # Using the Python version of the prompt
+        artifact=artifact_content_str, # Renamed from artifactContent to match Python prompt
+        reflections=memories_as_string,
+        lastMessage=last_message_str # Added lastMessage
+    )
+
+    # The prompt for generate_followup in TS is a simple HumanMessage.
+    response_ai_message = await llm.ainvoke([HumanMessage(content=prompt_str)], {"run_name": "generate_followup_llm_call"})
+
+    # The response from this LLM call is expected to be a follow-up question (as an AIMessage).
+    # This AIMessage should be added to both 'messages' (for UI) and '_messages' (for history).
+    # The TS pattern of returning `messages: [response], _messages: [response]` implies replacement
+    # if the graph state reducer for these keys is the default.
+    # Given this is a *new* follow-up message, it should typically be appended to history.
+    # However, to strictly follow the pattern from other nodes if that's intended for specific reducer reasons:
+    return {
+        "messages": [response_ai_message],
+        "_messages": [response_ai_message]
+    }
+
+
+async def rewrite_code_artifact_theme(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    print("Executing Node: rewrite_code_artifact_theme")
+    if config is None: config = {}
+    # graph_config should be the 'configurable' part for helpers
+    graph_config = config.get("configurable", {})
+
+    model_details = get_model_config(graph_config)
+    model_name = model_details.get("model_name", "unknown_model")
+    llm = await get_model_from_config(graph_config)
+
+    current_artifact_content_model = get_artifact_content(state.get("artifact"))
+    if not current_artifact_content_model:
+        error_message = AIMessage(content="Cannot rewrite code artifact theme: No artifact found in state.")
+        return {"messages": [error_message], "_messages": state.get("_messages", []) + [error_message]} # type: ignore
+
+    if current_artifact_content_model.type != ArtifactType.CODE:
+        error_message = AIMessage(content=f"Cannot rewrite code artifact theme: Artifact is not code-based (type: {current_artifact_content_model.type}).")
+        return {"messages": [error_message], "_messages": state.get("_messages", []) + [error_message]} # type: ignore
+
+    current_code_artifact: ArtifactCodeV3 = current_artifact_content_model # type: ignore
+
+    formatted_prompt = ""
+    # State fields that trigger this node
+    add_comments: Optional[bool] = state.get("addComments")
+    port_language: Optional[ProgrammingLanguageOptions] = state.get("portLanguage")
+    add_logs: Optional[bool] = state.get("addLogs")
+    fix_bugs: Optional[bool] = state.get("fixBugs")
+
+    # To reset the trigger field later
+    field_to_reset: Optional[str] = None
+
+    # Import prompts
+    from app.agents.prompts import (
+        ADD_COMMENTS_TO_CODE_ARTIFACT_PROMPT,
+        ADD_LOGS_TO_CODE_ARTIFACT_PROMPT,
+        FIX_BUGS_CODE_ARTIFACT_PROMPT,
+        PORT_LANGUAGE_CODE_ARTIFACT_PROMPT
+    )
+
+    if add_comments:
+        field_to_reset = "addComments"
+        formatted_prompt = ADD_COMMENTS_TO_CODE_ARTIFACT_PROMPT.format(artifactContent=current_code_artifact.code)
+    elif port_language:
+        field_to_reset = "portLanguage"
+        language_display_name = port_language.value
+        formatted_prompt = PORT_LANGUAGE_CODE_ARTIFACT_PROMPT.format(
+            newLanguage=language_display_name,
+            artifactContent=current_code_artifact.code
+        )
+    elif add_logs:
+        field_to_reset = "addLogs"
+        formatted_prompt = ADD_LOGS_TO_CODE_ARTIFACT_PROMPT.format(artifactContent=current_code_artifact.code)
+    elif fix_bugs:
+        field_to_reset = "fixBugs"
+        formatted_prompt = FIX_BUGS_CODE_ARTIFACT_PROMPT.format(artifactContent=current_code_artifact.code)
+    else:
+        error_message = AIMessage(content="Cannot rewrite code artifact theme: No relevant code modification option selected in state.")
+        return {"messages": [error_message], "_messages": state.get("_messages", []) + [error_message]} # type: ignore
+
+    response_ai_message = await llm.ainvoke([HumanMessage(content=formatted_prompt)], {"run_name": "rewrite_code_artifact_theme_llm_call"})
+
+    thinking_message_for_state: Optional[AIMessage] = None
+    actual_artifact_text_response = response_ai_message.content
+    if not isinstance(actual_artifact_text_response, str):
+         actual_artifact_text_response = str(actual_artifact_text_response)
+
+    if is_thinking_model(model_name):
+        extracted = extract_thinking_and_response_tokens(actual_artifact_text_response)
+        if extracted["thinking"]:
+            thinking_message_for_state = AIMessage(
+                id=f"thinking-{uuid.uuid4()}",
+                content=extracted["thinking"],
+                additional_kwargs={"oc_hide_from_ui": True}
+                )
+        actual_artifact_text_response = extracted["response"]
+
+    existing_artifact_v3: Optional[ArtifactV3] = state.get("artifact")
+    if not existing_artifact_v3: # Should be caught by earlier check
+         error_message = AIMessage(content="Critical error: Original artifact missing during code theme rewrite.")
+         return {"messages": [error_message], "_messages": state.get("_messages", []) + [error_message]} # type: ignore
+
+    new_code_language = port_language if port_language else current_code_artifact.language
+
+    new_content_item = ArtifactCodeV3(
+        index=len(existing_artifact_v3.contents),
+        type=ArtifactType.CODE,
+        title=current_code_artifact.title,
+        language=new_code_language,
+        code=actual_artifact_text_response
+    )
+
+    updated_artifact_contents = list(existing_artifact_v3.contents) + [new_content_item]
+
+    final_artifact_v3 = ArtifactV3(
+        currentIndex=len(updated_artifact_contents) - 1,
+        contents=updated_artifact_contents
+    )
+
+    return_dict: Dict[str, Any] = {
+        "artifact": final_artifact_v3,
+    }
+    if thinking_message_for_state:
+        return_dict["messages"] = [thinking_message_for_state]
+        return_dict["_messages"] = [thinking_message_for_state]
+
+    if field_to_reset:
+        return_dict[field_to_reset] = None
+
+    return return_dict
+
+
+# Helper to format messages for custom_action prompt (from TS node)
+def _format_messages_for_custom_action_prompt(messages: List[BaseMessage]) -> str:
+    return "\n".join(
+        # Using type attribute as per BaseMessage standard
+        [f"<{msg.type}>\n{get_string_from_content(msg.content)}\n</{msg.type}>" for msg in messages]
+    )
+
+async def custom_action(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    print("Executing Node: custom_action")
+    if config is None: config = {}
+    # graph_config is the 'configurable' part of RunnableConfig
+    graph_config = config.get("configurable", {})
+
+
+    custom_action_id = state.get("customQuickActionId")
+    if not custom_action_id:
+        error_msg ="Cannot execute custom action: No customQuickActionId found in state."
+        # Return an error message to be displayed in chat
+        return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)]} # type: ignore
+
+
+    # LLM for this node uses temperature 0.5 as per TS
+    llm = await get_model_from_config(graph_config, extra={"temperature": 0.5})
+
+    # --- Placeholder for Store Interaction: Fetching Custom Action and Reflections ---
+    # from app.schemas.common import CustomQuickAction # Already imported at top if done globally
+
+    # In a real scenario, this would involve:
+    # supabase_user_id = graph_config.get("supabase_user_id")
+    # store = get_store_from_config(config) # Assuming a utility to get the checkpointer/store
+    # all_custom_actions = await store.get(f"custom_actions:{supabase_user_id}")
+    # custom_action_details_dict = all_custom_actions.get(custom_action_id) if all_custom_actions else None
+    # if not custom_action_details_dict:
+    #     error_msg = f"Custom action with ID '{custom_action_id}' not found."
+    #     return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)], "customQuickActionId": None}
+
+    print(f"Warning: Using placeholder for custom action details (ID: {custom_action_id}).")
+    custom_quick_action_details_dict = { # Dummy data
+        "id": custom_action_id,
+        "title": f"Dummy Action: {custom_action_id}",
+        "prompt": "Please summarize the following artifact content.", # Example prompt
+        "includeReflections": True,
+        "includePrefix": True,
+        "includeRecentHistory": True
+    }
+    try:
+        custom_action_details = CustomQuickAction(**custom_quick_action_details_dict)
+    except Exception as e: # Pydantic ValidationError
+        error_msg = f"Invalid format for custom action details (ID: {custom_action_id}): {e}"
+        return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)], "customQuickActionId": None} # type: ignore
+
+    memories_as_string = await get_formatted_reflections(graph_config) # Existing placeholder
+    # --- End Placeholder ---
+
+    current_artifact_content_model = get_artifact_content(state.get("artifact"))
+
+    # Import prompts here or ensure they are available at module level
+    from app.agents.prompts import (
+        REFLECTIONS_QUICK_ACTION_PROMPT,
+        CUSTOM_QUICK_ACTION_ARTIFACT_PROMPT_PREFIX,
+        CUSTOM_QUICK_ACTION_CONVERSATION_CONTEXT,
+        CUSTOM_QUICK_ACTION_ARTIFACT_CONTENT_PROMPT
+    )
+
+    prompt_parts = []
+    if custom_action_details.includePrefix:
+        prompt_parts.append(CUSTOM_QUICK_ACTION_ARTIFACT_PROMPT_PREFIX)
+
+    prompt_parts.append(f"<custom-instructions>\n{custom_action_details.prompt}\n</custom-instructions>")
+
+    if custom_action_details.includeReflections and memories_as_string and "No specific user reflections available" not in memories_as_string:
+        prompt_parts.append(REFLECTIONS_QUICK_ACTION_PROMPT.format(reflections=memories_as_string))
+
+    if custom_action_details.includeRecentHistory:
+        recent_history = state.get("_messages", [])[-5:] # Get last 5 messages
+        if recent_history:
+            formatted_history = _format_messages_for_custom_action_prompt(recent_history)
+            prompt_parts.append(CUSTOM_QUICK_ACTION_CONVERSATION_CONTEXT.format(conversation=formatted_history))
+
+    artifact_content_for_prompt_str = "No artifacts generated yet."
+    if current_artifact_content_model:
+        if current_artifact_content_model.type == ArtifactType.CODE and isinstance(current_artifact_content_model, ArtifactCodeV3):
+            artifact_content_for_prompt_str = current_artifact_content_model.code
+        elif isinstance(current_artifact_content_model, ArtifactMarkdownV3): # TEXT
+            artifact_content_for_prompt_str = current_artifact_content_model.fullMarkdown
+
+    prompt_parts.append(CUSTOM_QUICK_ACTION_ARTIFACT_CONTENT_PROMPT.format(artifactContent=artifact_content_for_prompt_str))
+
+    final_prompt = "\n\n".join(prompt_parts)
+
+    response_ai_message = await llm.ainvoke([HumanMessage(content=final_prompt)], {"run_name": f"custom_action_{custom_action_id}_llm_call"})
+    llm_response_content = response_ai_message.content
+    if not isinstance(llm_response_content, str):
+        llm_response_content = str(llm_response_content)
+
+    if not current_artifact_content_model:
+        print("Warning: Custom action was invoked, but no current artifact exists to apply it to. Discarding LLM response.")
+        return {"customQuickActionId": None} # Reset trigger, no artifact change
+
+    existing_artifact_v3: Optional[ArtifactV3] = state.get("artifact")
+    if not existing_artifact_v3: # Should be caught by current_artifact_content_model check
+         error_msg = "Critical error: Artifact missing during custom action."
+         return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)], "customQuickActionId": None} # type: ignore
+
+    new_index = len(existing_artifact_v3.contents)
+    new_content_item: Union[ArtifactCodeV3, ArtifactMarkdownV3]
+
+    if current_artifact_content_model.type == ArtifactType.CODE and isinstance(current_artifact_content_model, ArtifactCodeV3):
+        new_content_item = ArtifactCodeV3(
+            index=new_index, type=ArtifactType.CODE,
+            title=current_artifact_content_model.title,
+            language=current_artifact_content_model.language,
+            code=llm_response_content
+        )
+    elif isinstance(current_artifact_content_model, ArtifactMarkdownV3): # TEXT
+        new_content_item = ArtifactMarkdownV3(
+            index=new_index, type=ArtifactType.TEXT,
+            title=current_artifact_content_model.title,
+            fullMarkdown=llm_response_content
+        )
+    else: # Should not happen due to earlier checks
+        error_msg = f"Unsupported artifact type for custom action: {current_artifact_content_model.type}"
+        return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)], "customQuickActionId": None} # type: ignore
+
+    updated_artifact_contents = list(existing_artifact_v3.contents) + [new_content_item]
+    final_artifact_v3 = ArtifactV3(
+        currentIndex=new_index,
+        contents=updated_artifact_contents
+    )
+
+    return {
+        "artifact": final_artifact_v3,
+        "customQuickActionId": None # Reset the trigger
+    }
+
+
+async def update_artifact(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    print("Executing Node: update_artifact")
+    if config is None: config = {}
+    # graph_config is the 'configurable' part of RunnableConfig
+    graph_config = config.get("configurable", {})
+
+    original_model_details = get_model_config(graph_config)
+    model_provider = original_model_details.get("model_provider", "").lower()
+    model_name = original_model_details.get("model_name", "").lower()
+
+    llm_config_to_use = graph_config # By default, use the graph's main config
+
+    # This list of "capable models" might need refinement based on testing.
+    # These are models assumed to be good at precise code editing tasks.
+    capable_models_for_update = ["claude-3-5-sonnet", "gpt-4o", "gpt-4.1", "gpt-4-turbo"]
+
+    is_openai_provider = "openai" in model_provider
+    is_anthropic_provider = "anthropic" in model_provider
+
+    # Check if the current model is considered capable for this specific task
+    is_current_model_capable = False
+    if is_openai_provider or is_anthropic_provider: # Only consider these providers for now
+        if any(cap_model in model_name for cap_model in capable_models_for_update):
+            is_current_model_capable = True
+
+    if not is_current_model_capable:
+        print(f"Original model {model_name} (provider: {model_provider}) not deemed suitable for precise artifact update. Overriding to gpt-4o.")
+        # Create a new config dictionary for override
+        override_configurable = graph_config.copy() # Start with a copy of existing 'configurable'
+        override_configurable["customModelName"] = "gpt-4o"
+
+        # Ensure modelConfig provider is also updated for get_model_from_config
+        if "modelConfig" not in override_configurable or not isinstance(override_configurable.get("modelConfig"), dict):
+            override_configurable["modelConfig"] = {"provider": "openai"}
+        else:
+            override_configurable["modelConfig"]["provider"] = "openai"
+
+        # Ensure temperature 0.0 is set for the override
+        # get_model_from_config will use this if passed in 'extra', or it can be part of modelConfig
+        # For clarity, we can ensure it's in the modelConfig for the override.
+        if "temperature" in override_configurable.get("modelConfig", {}): # Check if CustomModelConfig has temperature
+             override_configurable["modelConfig"]["temperature"] = 0.0
+
+        llm_config_to_use = override_configurable # Use the modified 'configurable' dict
+        llm = await get_model_from_config(llm_config_to_use, extra={"temperature": 0.0})
+    else:
+        # Use original config but ensure temperature is 0.0 for this specific call
+        llm = await get_model_from_config(llm_config_to_use, extra={"temperature": 0.0})
+
+    memories_as_string = await get_formatted_reflections(graph_config) # Placeholder
+
+    current_artifact_content_model = get_artifact_content(state.get("artifact"))
+    if not current_artifact_content_model:
+        error_msg = "Cannot update artifact: No artifact found in state."
+        return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)]} # type: ignore
+
+    if current_artifact_content_model.type != ArtifactType.CODE:
+        error_msg = f"Cannot update artifact: Artifact is not code-based (type: {current_artifact_content_model.type}). This action is for code artifacts."
+        return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)]} # type: ignore
+
+    current_code_artifact: ArtifactCodeV3 = current_artifact_content_model # type: ignore
+
+    highlighted_code_details_dict = state.get("highlightedCode")
+    if not highlighted_code_details_dict:
+        error_msg = "Cannot update artifact: No highlightedCode details found in state."
+        return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)]} # type: ignore
+
+    from app.schemas.common import CodeHighlight # Import here to avoid circularity if moved
+    try:
+        highlighted_code = CodeHighlight(**highlighted_code_details_dict)
+    except Exception as e:
+        error_msg = f"Invalid highlightedCode format in state: {e}"
+        return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)]} # type: ignore
+
+    context_window = 500 # Characters before and after highlight
+    start_context_idx = max(0, highlighted_code.startCharIndex - context_window)
+    end_context_idx = min(len(current_code_artifact.code), highlighted_code.endCharIndex + context_window)
+
+    code_to_display_before_highlight = current_code_artifact.code[start_context_idx : highlighted_code.startCharIndex]
+    highlighted_text_str = current_code_artifact.code[highlighted_code.startCharIndex : highlighted_code.endCharIndex]
+    code_to_display_after_highlight = current_code_artifact.code[highlighted_code.endCharIndex : end_context_idx]
+
+    from app.agents.prompts import UPDATE_HIGHLIGHTED_ARTIFACT_PROMPT # Import prompt
+
+    formatted_prompt = UPDATE_HIGHLIGHTED_ARTIFACT_PROMPT.format(
+        highlightedText=highlighted_text_str,
+        beforeHighlight=code_to_display_before_highlight,
+        afterHighlight=code_to_display_after_highlight,
+        reflections=memories_as_string
+    )
+
+    recent_human_message = next((msg for msg in reversed(state.get("_messages", [])) if msg.type == "human"), None)
+    if not recent_human_message:
+        error_msg = "Cannot update artifact: No recent human message found for context."
+        return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)]} # type: ignore
+
+    context_document_llm_parts = await create_context_document_messages(graph_config)
+    context_docs_messages_for_llm = [HumanMessage(content=context_document_llm_parts, additional_kwargs={"oc_hide_from_ui": True})] if context_document_llm_parts else []
+
+    final_model_details_for_role_check = get_model_config(llm_config_to_use)
+    prompt_is_user_role = is_using_o1_mini_model(final_model_details_for_role_check) # Pass the config used for LLM
+
+    llm_messages_for_invoke: List[BaseMessage] = []
+    if prompt_is_user_role:
+        llm_messages_for_invoke.append(HumanMessage(content=formatted_prompt))
+    else:
+        llm_messages_for_invoke.append(SystemMessage(content=formatted_prompt))
+
+    llm_messages_for_invoke.extend(context_docs_messages_for_llm)
+    llm_messages_for_invoke.append(recent_human_message)
+
+    response_ai_message = await llm.ainvoke(llm_messages_for_invoke, {"run_name": "update_artifact_llm_call"})
+    updated_highlight_content = response_ai_message.content
+    if not isinstance(updated_highlight_content, str):
+        updated_highlight_content = str(updated_highlight_content)
+
+    full_code_before_highlight = current_code_artifact.code[:highlighted_code.startCharIndex]
+    full_code_after_highlight = current_code_artifact.code[highlighted_code.endCharIndex:]
+
+    entire_updated_code = f"{full_code_before_highlight}{updated_highlight_content}{full_code_after_highlight}"
+
+    existing_artifact_v3: Optional[ArtifactV3] = state.get("artifact")
+    if not existing_artifact_v3: # Should be caught by earlier check
+         error_message = AIMessage(content="Critical error: Original artifact missing during update_artifact.")
+         return {"messages": [error_message], "_messages": state.get("_messages", []) + [error_message]} # type: ignore
+
+    new_content_item = ArtifactCodeV3(
+        index=len(existing_artifact_v3.contents),
+        type=ArtifactType.CODE,
+        title=current_code_artifact.title,
+        language=current_code_artifact.language,
+        code=entire_updated_code
+    )
+
+    updated_artifact_contents = list(existing_artifact_v3.contents) + [new_content_item]
+    final_artifact_v3 = ArtifactV3(
+        currentIndex=len(updated_artifact_contents) - 1,
+        contents=updated_artifact_contents
+    )
+
+    return_dict: Dict[str, Any] = {
+        "artifact": final_artifact_v3,
+        "highlightedCode": None # Reset the trigger
+    }
+    # This node, per TS, does not add its own AIMessage about the update to the chat.
+    # It just updates the artifact and resets highlightedCode.
+    return return_dict
+
+
+UPDATE_HIGHLIGHTED_TEXT_NODE_PROMPT = """You are an expert AI writing assistant, tasked with rewriting some text a user has selected. The selected text is nested inside a larger 'block'. You should always respond with ONLY the updated text block in accordance with the user's request.
+You should always respond with the full markdown text block, as it will simply replace the existing block in the artifact.
+The blocks will be joined later on, so you do not need to worry about the formatting of the blocks, only make sure you keep the formatting and structure of the block you are updating.
+
+# Selected text
+{highlightedText}
+
+# Text block
+{textBlocks}
+
+Your task is to rewrite the sourounding content to fulfill the users request. The selected text content you are provided above has had the markdown styling removed, so you can focus on the text itself.
+However, ensure you ALWAYS respond with the full markdown text block, including any markdown syntax.
+NEVER wrap your response in any additional markdown syntax, as this will be handled by the system. Do NOT include a triple backtick wrapping the text block, unless it was present in the original text block.
+You should NOT change anything EXCEPT the selected text. The ONLY instance where you may update the sourounding text is if it is necessary to make the selected text make sense.
+You should ALWAYS respond with the full, updated text block, including any formatting, e.g newlines, indents, markdown syntax, etc. NEVER add extra syntax or formatting unless the user has specifically requested it.
+If you observe partial markdown, this is OKAY because you are only updating a partial piece of the text.
+
+Ensure you reply with the FULL text block, including the updated selected text. NEVER include only the updated selected text, or additional prefixes or suffixes."""
+
+
 async def update_highlighted_text(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    print("Executing Node: update_highlighted_text")
+    if config is None: config = {}
+    graph_config = config.get("configurable", {}) # Use 'configurable' part for helpers
+
+    original_model_details = get_model_config(graph_config)
+    model_provider = original_model_details.get("model_provider", "").lower()
+    model_name = original_model_details.get("model_name", "").lower()
+
+    llm_config_to_use = graph_config
+    capable_models_for_update = ["claude-3-5-sonnet", "gpt-4o", "gpt-4.1", "gpt-4-turbo"]
+    is_openai_provider = "openai" in model_provider
+    is_anthropic_provider = "anthropic" in model_provider
+
+    is_current_model_capable = False
+    if is_openai_provider or is_anthropic_provider:
+        if any(cap_model in model_name for cap_model in capable_models_for_update):
+            is_current_model_capable = True
+
+    if not is_current_model_capable:
+        print(f"Original model {model_name} (provider: {model_provider}) not deemed suitable for precise text update. Overriding to gpt-4o.")
+        override_configurable = graph_config.copy()
+        override_configurable["customModelName"] = "gpt-4o"
+        if "modelConfig" not in override_configurable or not isinstance(override_configurable.get("modelConfig"), dict):
+            override_configurable["modelConfig"] = {"provider": "openai"}
+        else:
+            override_configurable["modelConfig"]["provider"] = "openai"
+
+        # Ensure temperature 0.0 is set for the override
+        if "temperature" in override_configurable.get("modelConfig", {}):
+             override_configurable["modelConfig"]["temperature"] = 0.0
+
+        llm_config_to_use = override_configurable
+        llm = await get_model_from_config(llm_config_to_use, extra={"temperature": 0.0})
+    else:
+        llm = await get_model_from_config(llm_config_to_use, extra={"temperature": 0.0})
+
+    current_artifact_content_model = get_artifact_content(state.get("artifact"))
+    if not current_artifact_content_model:
+        error_msg = "Cannot update highlighted text: No artifact found in state."
+        return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)]} # type: ignore
+
+    if current_artifact_content_model.type != ArtifactType.TEXT:
+        error_msg = f"Cannot update highlighted text: Artifact is not text-based (type: {current_artifact_content_model.type})."
+        return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)]} # type: ignore
+
+    current_markdown_artifact: ArtifactMarkdownV3 = current_artifact_content_model # type: ignore
+
+    highlighted_text_details_dict = state.get("highlightedText")
+    if not highlighted_text_details_dict:
+        error_msg = "Cannot update highlighted text: No highlightedText details found in state."
+        return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)]} # type: ignore
+
+    from app.schemas.common import TextHighlight # Import here
+    try:
+        highlighted_text_info = TextHighlight(**highlighted_text_details_dict)
+    except Exception as e:
+        error_msg = f"Invalid highlightedText format in state: {e}"
+        return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)]} # type: ignore
+
+    formatted_prompt = UPDATE_HIGHLIGHTED_TEXT_NODE_PROMPT.format(
+        highlightedText=highlighted_text_info.selectedText,
+        textBlocks=highlighted_text_info.markdownBlock
+    )
+
+    recent_human_message = next((msg for msg in reversed(state.get("_messages", [])) if msg.type == "human"), None)
+    if not recent_human_message:
+        error_msg = "Cannot update highlighted text: No recent human message found for context."
+        return {"messages": [AIMessage(content=error_msg)], "_messages": state.get("_messages", []) + [AIMessage(content=error_msg)]} # type: ignore
+
+    context_document_llm_parts = await create_context_document_messages(graph_config)
+    context_docs_messages_for_llm = [HumanMessage(content=context_document_llm_parts, additional_kwargs={"oc_hide_from_ui": True})] if context_document_llm_parts else []
+
+    final_model_details_for_role_check = get_model_config(llm_config_to_use)
+    prompt_is_user_role = is_using_o1_mini_model(final_model_details_for_role_check)
+
+    llm_messages_for_invoke: List[BaseMessage] = []
+    if prompt_is_user_role:
+        llm_messages_for_invoke.append(HumanMessage(content=formatted_prompt))
+    else:
+        llm_messages_for_invoke.append(SystemMessage(content=formatted_prompt))
+
+    llm_messages_for_invoke.extend(context_docs_messages_for_llm)
+    llm_messages_for_invoke.append(recent_human_message)
+
+    response_ai_message = await llm.ainvoke(llm_messages_for_invoke, {"run_name": "update_highlighted_text_llm_call"})
+    updated_markdown_block_response = response_ai_message.content
+    if not isinstance(updated_markdown_block_response, str):
+        updated_markdown_block_response = str(updated_markdown_block_response)
+
+    # Reconstruct the full markdown
+    if highlighted_text_info.markdownBlock not in highlighted_text_info.fullMarkdown:
+        print(f"Warning: Original markdownBlock (length {len(highlighted_text_info.markdownBlock)}) not found in fullMarkdown (length {len(highlighted_text_info.fullMarkdown)}) from TextHighlight. This may lead to incorrect replacement.")
+        # Fallback: attempt replacement, but it might fail or replace wrong part.
+        # A more robust solution might involve diffing or more advanced string matching if this is common.
+        # For now, proceed with replace, but log the warning.
+        # If block is truly not there, this replace will do nothing.
+        new_full_artifact_markdown = highlighted_text_info.fullMarkdown.replace(
+            highlighted_text_info.markdownBlock,
+            updated_markdown_block_response,
+            1 # Replace only the first occurrence, just in case block is repeated
+        )
+        if new_full_artifact_markdown == highlighted_text_info.fullMarkdown and updated_markdown_block_response != highlighted_text_info.markdownBlock :
+             print("Fallback replacement failed. Appending new block to full markdown.")
+             # If replace had no effect and blocks are different, append. This is a last resort.
+             new_full_artifact_markdown = highlighted_text_info.fullMarkdown + "\n\n" + updated_markdown_block_response
+
+    else:
+        new_full_artifact_markdown = highlighted_text_info.fullMarkdown.replace(
+            highlighted_text_info.markdownBlock,
+            updated_markdown_block_response,
+            1 # Replace only the first occurrence
+        )
+
+    existing_artifact_v3: Optional[ArtifactV3] = state.get("artifact")
+    if not existing_artifact_v3:
+         error_message = AIMessage(content="Critical error: Original artifact missing during highlighted text update.")
+         return {"messages": [error_message], "_messages": state.get("_messages", []) + [AIMessage(content=error_message)]} # type: ignore
+
+    new_content_item = ArtifactMarkdownV3(
+        index=len(existing_artifact_v3.contents),
+        type=ArtifactType.TEXT,
+        title=current_markdown_artifact.title,
+        fullMarkdown=new_full_artifact_markdown
+    )
+
+    updated_artifact_contents = list(existing_artifact_v3.contents) + [new_content_item]
+    final_artifact_v3 = ArtifactV3(
+        currentIndex=len(updated_artifact_contents) - 1,
+        contents=updated_artifact_contents
+    )
+
+    return_dict: Dict[str, Any] = {
+        "artifact": final_artifact_v3,
+        "highlightedText": None
+    }
+    return return_dict
+
+async def update_highlighted_text(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]: # type: ignore
     print("Executing Node: update_highlighted_text")
     new_ai_message = AIMessage(content="Highlighted text update placeholder.")
     return {
@@ -639,7 +1412,69 @@ async def generate_followup(state: OpenCanvasState, config: Optional[Dict[str, A
 async def reflect_node(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     print("Executing Node: reflect_node")
     # This node might update 'reflections' in state based on state.get("messages")
-    return {} # No direct message output, updates state fields like 'reflections'
+    # This main graph node will now be a placeholder for triggering the reflection sub-graph.
+    # from app.agents.reflection_graph.graph import reflection_graph_app # For later direct call
+    # from fastapi import BackgroundTasks # Example for background execution
+
+    print("Executing Node: reflect_node (Main Graph - Placeholder for triggering reflection)")
+    if config is None: config = {}
+    # graph_config is the full RunnableConfig of the main graph
+
+    configurable_main_graph = config.get("configurable", {})
+    main_assistant_id = configurable_main_graph.get("assistant_id") # Or other key if named differently
+
+    if not main_assistant_id:
+        print("Warning: 'assistant_id' not found in main graph's config. Cannot trigger reflection graph without it.")
+        return {}
+
+    # Prepare input for the reflection_graph_app
+    # The reflection graph expects 'messages' and 'artifact' in its state.
+    # It uses _messages from the main graph as its 'messages' input.
+    reflection_graph_input = {
+        "messages": state.get("_messages", []),
+        "artifact": state.get("artifact")
+    }
+
+    # Prepare the config for the reflection_graph_app run
+    # Pass the main assistant_id as 'open_canvas_assistant_id' for the reflection graph's context.
+    # Also, if the reflection graph needs to access the same checkpointer/store, it should be passed.
+    reflection_graph_run_config = {
+        "configurable": {
+            "open_canvas_assistant_id": main_assistant_id,
+            # Example: if checkpointer is part of config and needed by reflection_graph for its store operations
+            # "checkpointer": config.get("checkpointer"),
+        },
+        # Ensure recursion limit is handled if calling graphs from graphs
+        "recursion_limit": config.get("recursion_limit", 25) -1 if config.get("recursion_limit") else 24,
+    }
+
+    print(f"Reflect Node (Main Graph): Would trigger 'reflection_graph_app'.")
+    print(f"  - Reflection Input (first 100 chars of messages): {{'messages': {str(reflection_graph_input['messages'])[:100]}..., 'artifact': {str(reflection_graph_input['artifact'])[:100]}...}}")
+    print(f"  - Reflection Config: {{'configurable': {{'open_canvas_assistant_id': '{main_assistant_id}'}}}}")
+
+    # TODO - Phase 2: Implement actual call to reflection_graph_app.
+    # This could be a direct `await reflection_graph_app.ainvoke(...)` if synchronous behavior is acceptable,
+    # or a background task if the main flow shouldn't wait for reflections to complete.
+    # Example (synchronous call - blocks the main graph flow until reflection is done):
+    # try:
+    #     await reflection_graph_app.ainvoke(reflection_graph_input, config=reflection_graph_run_config)
+    #     print("Reflection graph invocation completed.")
+    # except Exception as e:
+    #     print(f"Error invoking reflection graph: {e}")
+    #
+    # Example for background task (requires FastAPI's BackgroundTasks or similar mechanism):
+    # This assumes `background_tasks` is available in this scope, e.g., via FastAPI dependency injection
+    # if this node were part of a FastAPI route handler that creates and runs the graph.
+    # If running graph outside FastAPI, another backgrounding method (e.g., asyncio.create_task, Celery) needed.
+    #
+    # if "background_tasks" in config.get("configurable", {}): # Check if available
+    #    bg_tasks = config["configurable"]["background_tasks"]
+    #    bg_tasks.add_task(reflection_graph_app.ainvoke, reflection_graph_input, config=reflection_graph_run_config)
+    #    print("Reflection graph task added to background.")
+    # else:
+    #    print("No background task runner found in config, reflection would be synchronous or not run.")
+
+    return {} # reflect_node in main graph doesn't directly change main graph state; reflection graph updates store.
 
 async def clean_state_node(state: OpenCanvasState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     print("Executing Node: clean_state_node")
