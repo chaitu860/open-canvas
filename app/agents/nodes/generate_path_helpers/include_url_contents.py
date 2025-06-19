@@ -5,7 +5,7 @@ import json # For parsing model output if it's a string
 from typing import List, Optional, Dict, Any
 
 from langchain_core.messages import HumanMessage, AIMessage # type: ignore
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 # from langsmith import traceable # If using langsmith
 
 from utils.langchain_helpers import get_model_from_config, get_string_from_message_content

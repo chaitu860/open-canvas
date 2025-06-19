@@ -7,13 +7,13 @@ import uuid # For fallback ID in search_node
 
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage # type: ignore
 from langchain_anthropic import ChatAnthropic
-from langchain_exa import ExaRetriever
+from langchain_exa import ExaSearchResults
 
 from .state import WebSearchState
 from .schemas import ClassificationSchema
 from .prompts import CLASSIFIER_PROMPT, QUERY_GENERATOR_PROMPT
 
-from app.utils.text_processing import get_string_from_content
+from utils.text_processing import get_string_from_content
 # Re-using _format_messages_for_summary as it's similar to TS formatMessages
 # This helper was defined in summarizer_graph.nodes, need to ensure it's accessible
 # For now, let's assume it's moved to a common utility or re-defined if necessary.
@@ -112,7 +112,7 @@ async def search_node(state: WebSearchState, config: Optional[Dict[str, Any]] = 
         print("Warning: EXA_API_KEY environment variable not found. Skipping web search.")
         return {"webSearchResults": []}
 
-    retriever = ExaRetriever(
+    retriever = ExaSearchResults(
         api_key=exa_api_key, # Corrected: pass api_key directly
         k=5 # Number of results, equivalent to numResults: 5 in TS
         # filter_empty_results is not a direct param, Exa might do this by default or results need manual filtering.
@@ -166,9 +166,9 @@ async def search_node(state: WebSearchState, config: Optional[Dict[str, Any]] = 
         return {"webSearchResults": []} # Return empty list on error
 
 # Ensure all necessary types are available
-from app.schemas.common import SearchResult # For type hint if needed, though state uses it
-from app.utils.text_processing import get_string_from_content # Already imported
-from app.agents.summarizer_graph.nodes import _format_messages_for_summary as format_messages_for_web_search # Check path or move common utils
+from schemas.common import SearchResult # For type hint if needed, though state uses it
+from utils.text_processing import get_string_from_content # Already imported
+from agents.summarizer_graph.nodes import _format_messages_for_summary as format_messages_for_web_search # Check path or move common utils
 # Correcting import for _format_messages_for_web_search_prompt - it's locally defined.
 # No, it was defined above, so it's fine.
 

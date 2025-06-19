@@ -1,7 +1,7 @@
 # app/agents/web_search_graph/state.py
 from typing import List, Optional, TypedDict
 from langchain_core.messages import BaseMessage # type: ignore
-from app.schemas.common import SearchResult # Assuming SearchResult is in app.schemas.common
+from schemas.common import SearchResult # Assuming SearchResult is in app.schemas.common
 
 class WebSearchState(TypedDict):
     messages: List[BaseMessage] # Input: chat history from the main graph
