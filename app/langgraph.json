@@ -1,0 +1,14 @@
+{
+  "python_version": "3.11",
+  "dependencies": [
+    "."
+  ],
+  "graphs": {
+    "agent": "agents:open_canvas",
+    "reflection": "agents.reflection_graph:graph",
+    "thread_title": "agents.thread_title_graph:graph",
+    "summarizer": "agents.summarizer_graph:graph",
+    "web_search": "agents.web_search_graph:graph"
+  },
+  "env": ".env"
+}

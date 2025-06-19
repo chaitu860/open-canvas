@@ -4,6 +4,7 @@ pydantic
 pydantic-settings
 python-dotenv
 langgraph
+langgraph-cli[inmem]
 langchain
 langchain-core
 langchain-openai
