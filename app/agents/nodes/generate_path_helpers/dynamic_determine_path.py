@@ -2,7 +2,7 @@
 import json # For parsing model output if it's a string
 from typing import List, Optional, Dict, Any, Literal as PyLiteral
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage # type: ignore
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 
 from agents.prompts import (
     ROUTE_QUERY_PROMPT,

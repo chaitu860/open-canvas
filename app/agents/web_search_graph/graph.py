@@ -4,7 +4,7 @@ from typing import Literal # For Literal type hint
 from .state import WebSearchState
 from .nodes import classify_message_node, query_generator_node, search_node
 
-def search_or_end_conditional(state: WebSearchState) -> Literal["queryGenerator", END]:
+def search_or_end_conditional(state: WebSearchState) -> Literal["queryGenerator", END]: # type: ignore
     """
     Determines the next step after classification.
     If shouldSearch is true, proceed to queryGenerator. Otherwise, end the graph.
