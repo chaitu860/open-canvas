@@ -1,7 +1,7 @@
 # app/agents/nodes/rewrite_artifact_helpers/schemas.py
 from typing import Optional
 from langchain_core.pydantic_v1 import BaseModel, Field
-from schemas.common import ProgrammingLanguageOptions, ArtifactType
+from app.schemas.common import ProgrammingLanguageOptions, ArtifactType
 
 class OptionallyUpdateArtifactMetaSchema(BaseModel):
     type: ArtifactType = Field(..., description="The type of the artifact content (e.g. 'text' or 'code').")

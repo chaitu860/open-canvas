@@ -3,11 +3,11 @@ from typing import Dict, Any, Union, Tuple, Optional, TypedDict # Added TypedDic
 
 from langchain_core.messages import BaseMessage, HumanMessage # type: ignore
 
-from agents.state import OpenCanvasState
-from schemas.common import ArtifactCodeV3, ArtifactMarkdownV3, ProgrammingLanguageOptions, ArtifactType
-from utils.langchain_helpers import get_artifact_content, is_artifact_code_content
-from agents.prompts import OPTIONALLY_UPDATE_META_PROMPT, UPDATE_ENTIRE_ARTIFACT_PROMPT
-from .schemas import OptionallyUpdateArtifactMetaSchema
+from app.agents.state import OpenCanvasState
+from app.schemas.common import ArtifactCodeV3, ArtifactMarkdownV3, ProgrammingLanguageOptions, ArtifactType
+from app.utils.langchain_helpers import get_artifact_content, is_artifact_code_content
+from app.agents.prompts import OPTIONALLY_UPDATE_META_PROMPT, UPDATE_ENTIRE_ARTIFACT_PROMPT
+from app.agents.nodes.rewrite_artifact_helpers.schemas import OptionallyUpdateArtifactMetaSchema
 
 
 def validate_state(state: OpenCanvasState) -> Tuple[Union[ArtifactCodeV3, ArtifactMarkdownV3], BaseMessage]:

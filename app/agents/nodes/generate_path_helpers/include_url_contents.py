@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage, AIMessage # type: ignore
 from langchain_core.pydantic_v1 import BaseModel, Field
 # from langsmith import traceable # If using langsmith
 
-from utils.langchain_helpers import get_model_from_config, get_string_from_message_content
+from app.utils.langchain_helpers import get_model_from_config, get_string_from_message_content
 from langchain_community.document_loaders.firecrawl import FireCrawlLoader
 # Equivalent to the Zod schema in TypeScript
 class DetermineIncludeUrlContentsSchema(BaseModel):

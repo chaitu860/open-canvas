@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Run FastAPI with Uvicorn",
+        "type": "python",
+        "python": "/Users/chaitanyav/Documents/jules/open-canvas/app/venv/bin/python3",  // 👈 Global interpreter path
+
+        "request": "launch",
+        "module": "uvicorn",
+        "args": [
+          "app.main:app",       // Replace with your path to the FastAPI app
+          "--reload"
+        ],
+        "jinja": true,
+        "console": "integratedTerminal",
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}"
+        }
+      }
+    ]
+  }
+  

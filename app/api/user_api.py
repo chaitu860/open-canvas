@@ -41,7 +41,7 @@ async def read_users_me(
     # though this is NOT how actual "me" endpoints work with auth.
     # This is more like a "get_my_user_record_if_i_tell_you_my_supabase_id"
     supabase_user_id: str, # In a real app, this comes from decoded token
-    email: Optional[EmailStr] = None, # Email might be needed if creating for the first time
+    email: Optional[str] = None, # Email might be needed if creating for the first time
     user_service: UserService = Depends(get_user_service)
 ):
     '''

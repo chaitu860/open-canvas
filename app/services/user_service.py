@@ -32,7 +32,7 @@ class UserService:
             return None
 
     async def get_or_create_user_by_supabase_id(
-        self, *, supabase_user_id: str, email: Optional[EmailStr] = None
+        self, *, supabase_user_id: str, email: Optional[str] = None
     ) -> Optional[User]:
         '''Retrieves a user by their Supabase User ID, creating them if they don't exist.'''
         async with self.uow:

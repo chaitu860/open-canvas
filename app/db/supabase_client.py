@@ -1,49 +1,54 @@
 # app/db/supabase_client.py
+
 import os
-from supabase import create_client, Client
-from app.config.settings import settings # Import your app settings
-from typing import Optional # Added for Python < 3.9 compatibility with Optional[Client]
+import psycopg2
+from psycopg2.extensions import connection as PGConnection
+from typing import Optional
+from app.config.settings import settings
 
-supabase_client: Optional[Client] = None
+postgres_connection: Optional[PGConnection] = None
 
-def init_supabase_client() -> Client:
+def init_postgres_connection() -> PGConnection:
     '''
-    Initializes the Supabase client using credentials from settings.
+    Initializes a direct connection to Supabase Postgres.
     Raises ValueError if credentials are not set.
     '''
-    global supabase_client
-    if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY:
-        supabase_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
-        print("Supabase client initialized successfully.")
-        return supabase_client
-    else:
-        print("Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in environment variables / .env file.")
-        raise ValueError("Supabase URL and Service Role Key not configured.")
+    global postgres_connection
 
-def get_supabase_client() -> Client:
+    required = [
+        settings.DB_HOST,
+        settings.DB_NAME,
+        settings.DB_USER,
+        settings.DB_PASSWORD
+    ]
+    if not all(required):
+        raise ValueError("Postgres connection details are not properly configured in settings.")
+
+    try:
+        postgres_connection = psycopg2.connect(
+            host=settings.DB_HOST,
+            port=settings.DB_PORT or 5432,
+            database=settings.DB_NAME,
+            user=settings.DB_USER,
+            password=settings.DB_PASSWORD,
+        )
+        print("Postgres connection initialized successfully.")
+        return postgres_connection
+    except Exception as e:
+        print("Error connecting to Postgres:", e)
+        raise ConnectionError(f"Failed to connect to Postgres: {e}")
+
+def get_postgres_connection() -> PGConnection:
     '''
-    Returns the initialized Supabase client.
+    Returns the initialized Postgres connection.
     Initializes it if it hasn't been already.
     '''
-    global supabase_client
-    if supabase_client is None:
-        # This ensures that if the client is not explicitly initialized at startup,
-        # the first call to get_supabase_client will attempt to initialize it.
-        # Depending on application structure, explicit initialization at startup might be preferred.
-        print("Supabase client not initialized. Attempting to initialize now.")
-        init_supabase_client()
+    global postgres_connection
+    if postgres_connection is None:
+        print("Postgres connection not initialized. Attempting to initialize now.")
+        init_postgres_connection()
 
-    if supabase_client is None: # Check again after init attempt
-        # This case should ideally not be reached if init_supabase_client raises ValueError
-        # but as a safeguard:
-        raise ConnectionError("Supabase client could not be initialized. Check configurations.")
+    if postgres_connection is None:
+        raise ConnectionError("Postgres connection could not be initialized. Check configurations.")
 
-    return supabase_client
-
-# Optional: You might want to initialize the client when this module is loaded
-# or explicitly call init_supabase_client() in your main application startup.
-# For example, in app/main.py:
-# from app.db.supabase_client import init_supabase_client
-# @app.on_event("startup")
-# async def startup_event():
-#     init_supabase_client()
+    return postgres_connection

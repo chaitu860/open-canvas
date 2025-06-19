@@ -1,6 +1,6 @@
 # app/agents/state.py
 from typing import List, Optional, TypedDict, Any, Literal
-from schemas.common import (
+from app.schemas.common import (
     CodeHighlight,
     TextHighlight,
     ArtifactV3,

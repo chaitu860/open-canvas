@@ -2,8 +2,8 @@
 from typing import Dict, Any, Optional, List
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage # type: ignore
 
-from agents.state import OpenCanvasState
-from utils.langchain_helpers import (
+from app.agents.state import OpenCanvasState
+from app.utils.langchain_helpers import (
     get_model_from_config,
     is_using_o1_mini_model,
     # get_formatted_reflections, # This is a placeholder in open_canvas.py, will use that
@@ -11,9 +11,9 @@ from utils.langchain_helpers import (
     format_artifact_content, # For formatting artifact for the prompt
     get_string_from_message_content # To extract text from last human message
 )
-from agents.prompts import GET_TITLE_TYPE_REWRITE_ARTIFACT
-from .schemas import OptionallyUpdateArtifactMetaSchema
-from schemas.common import ProgrammingLanguageOptions # For fallback
+from app.agents.prompts import GET_TITLE_TYPE_REWRITE_ARTIFACT
+from app.agents.nodes.rewrite_artifact_helpers.schemas import OptionallyUpdateArtifactMetaSchema
+from app.schemas.common import ProgrammingLanguageOptions # For fallback
 
 # Placeholder for get_formatted_reflections, assuming it's defined in open_canvas or similar scope
 # For direct use here, it would need to be imported or passed, or we use a local placeholder.
@@ -118,5 +118,5 @@ async def optionally_update_artifact_meta(
         language=current_lang
     )
 
-from schemas.common import ArtifactType # For fallback logic
-from utils.langchain_helpers import ProgrammingLanguageOptions # For fallback
+from app.schemas.common import ArtifactType # For fallback logic
+from app.utils.langchain_helpers import ProgrammingLanguageOptions # For fallback

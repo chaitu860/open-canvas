@@ -1,6 +1,6 @@
 # app/api/agent.py
 from fastapi import APIRouter, HTTPException, Path, Body
-from schemas.agent import (
+from app.schemas.agent import (
     AgentInvokeRequest,
     AgentInvokeResponse,
     AgentStatus,

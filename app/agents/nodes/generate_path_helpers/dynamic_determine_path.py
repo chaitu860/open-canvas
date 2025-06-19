@@ -4,21 +4,21 @@ from typing import List, Optional, Dict, Any, Literal as PyLiteral
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage # type: ignore
 from langchain_core.pydantic_v1 import BaseModel, Field
 
-from agents.prompts import (
+from app.agents.prompts import (
     ROUTE_QUERY_PROMPT,
     ROUTE_QUERY_OPTIONS_HAS_ARTIFACTS,
     ROUTE_QUERY_OPTIONS_NO_ARTIFACTS,
     CURRENT_ARTIFACT_PROMPT,
     NO_ARTIFACT_PROMPT
 )
-from utils.langchain_helpers import (
+from app.utils.langchain_helpers import (
     get_model_from_config,
     # create_context_document_messages, # Not directly used here, context is in state.messages
     get_artifact_content,
     format_artifact_content_with_template,
     get_string_from_message_content, # Changed from text_processing import
 )
-from agents.state import OpenCanvasState
+from app.agents.state import OpenCanvasState
 # from app.utils.text_processing import get_string_from_content # Moved to langchain_helpers to avoid potential circularity
 
 # from langsmith import traceable # If using langsmith

@@ -10,7 +10,7 @@ from app.schemas.artifact import (
 )
 from app.schemas.user import User # Assuming user context might be needed, e.g. from auth
 from app.services.session_service import SessionService
-from app.api.dependencies import get_session_service, get_db_client # get_user_service if needed for auth
+from app.api.dependencies import get_session_service # get_user_service if needed for auth
 from pydantic import BaseModel # For the new response schema
 
 # Define the response schema for the stream_content endpoint
@@ -31,14 +31,16 @@ router = APIRouter(
     summary="Stream artifact content to the server",
     description="Accepts artifact metadata (name, type) as query parameters and streams artifact content from the request body. Stores content in chunks and returns artifact and version IDs."
 )
+
 async def stream_artifact_content_to_server(
+    request: Request, # FastAPI's Request object to handle streaming
     session_id: uuid.UUID = Path(..., description="The ID of the session to associate the artifact with"),
     artifact_name: str = Query(..., description="The name of the artifact"),
     artifact_type: str = Query(..., description="The type of the artifact (e.g., 'canvas_state', 'generated_code_block')"),
     # user_id: uuid.UUID, # Assuming user_id will come from an auth dependency later
     version_notes: Optional[str] = Query(None, description="Optional notes for this artifact version"),
-    request: Request, # Needed to stream the request body
     session_service: SessionService = Depends(get_session_service)
+
 ):
     # For now, let's simulate a user_id. In a real app, this would come from an auth system.
     # This user_id should ideally be the one associated with the session_id.

@@ -11,7 +11,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     supabase_user_id: str
-    email: EmailStr
+    email: str
 
 class UserUpdate(UserBase):
     pass

@@ -1,4 +1,5 @@
 # app/config/settings.py
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
@@ -18,10 +19,15 @@ class Settings(BaseSettings):
     # FRONTEND_URL: str = "http://localhost:3000"
 
     # Supabase keys (optional, if backend needs direct Supabase access)
-    SUPABASE_URL: Optional[str] = None
-    SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
+    SUPABASE_URL: Optional[str] = os.getenv("SUPABASE_URL", "https://wfyqufojqnsxxjlbfyf.supabase.co")  # Use os.getenv for compatibility with Python < 3.9
+    SUPABASE_SERVICE_ROLE_KEY: Optional[str] = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndmeXF1Zm92anFuc3h4amxiZnlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk4OTEwNTAsImV4cCI6MjA2NTQ2NzA1MH0.pMXL0UXIkfjT888qnqKk6K_908ZRkBRvTW_ORbbHQEI")
 
     # Pydantic V2 style for model_config:
+    DB_HOST: Optional[str] = os.getenv("DB_HOST", "db.wfyqufovjqnsxxjlbfyf.supabase.co")
+    DB_NAME: Optional[str] = os.getenv("DB_NAME", "postgres")
+    DB_USER: Optional[str] = os.getenv("DB_USER", "postgres")
+    DB_PASSWORD: Optional[str] = os.getenv("DB_PASSWORD", "Postgres#123")
+    DB_PORT: Optional[int] = os.getenv("DB_PORT", 5432)  # Default Postgres port
     # Loads variables from a .env file.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -3,8 +3,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware # Added
 from app.api import user_api # Assuming user_api.py is in app/api/
 from app.api import artifact_api # Import for the new artifact API
-from app.db.supabase_client import init_supabase_client # For explicit init at startup
-from api.agent import router as agent_router
+from app.db.supabase_client import init_postgres_connection # For explicit init at startup
+from app.api.agent import router as agent_router
 
 
 app = FastAPI(title="LangGraph Agent Server - Python Edition")
@@ -16,7 +16,7 @@ app = FastAPI(title="LangGraph Agent Server - Python Edition")
 async def startup_event():
     print("Application startup: Initializing Supabase client...")
     try:
-        init_supabase_client()
+        init_postgres_connection()  # Initialize the Postgres connection
         print("Supabase client initialization successful from startup event.")
     except ValueError as e: # From init_supabase_client if config missing
         print(f"CRITICAL ERROR: Supabase client could not be initialized at startup: {e}")

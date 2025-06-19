@@ -4,24 +4,24 @@ import copy # For deepcopy in clean_state_node
 
 from langgraph.graph import StateGraph, END, START
 
-from schemas.common import ArtifactLengthOptions, CustomQuickAction, LanguageOptions, ReadingLevelOptions
-from utils.langchain_helpers import is_artifact_code_content
+from app.schemas.common import ArtifactLengthOptions, CustomQuickAction, LanguageOptions, ReadingLevelOptions
+from app.utils.langchain_helpers import is_artifact_code_content
 # from langgraph.checkpoint.sqlite import SqliteSaver # Example checkpointer
-from .state import OpenCanvasState
+from app.agents.state import OpenCanvasState
 from typing import Dict, Any, Literal, Optional, List, Union
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage # type: ignore
 
-from utils.text_processing import get_string_from_content, extract_urls
-from agents.nodes.generate_path_helpers.documents import (
+from app.utils.text_processing import get_string_from_content, extract_urls
+from app.agents.nodes.generate_path_helpers.documents import (
     convert_context_document_to_human_message,
     fix_misformatted_context_doc_message,
     RemoveMessage
 )
-from agents.nodes.generate_path_helpers.include_url_contents import include_url_contents_func
-from agents.nodes.generate_path_helpers.dynamic_determine_path import dynamic_determine_path_func
-from agents.nodes.rewrite_artifact_helpers.utils import CreateNewArtifactContentArgs
-from utils.langchain_helpers import ( # Added for reply_to_general_input
+from app.agents.nodes.generate_path_helpers.include_url_contents import include_url_contents_func
+from app.agents.nodes.generate_path_helpers.dynamic_determine_path import dynamic_determine_path_func
+from app.agents.nodes.rewrite_artifact_helpers.utils import CreateNewArtifactContentArgs
+from app.utils.langchain_helpers import ( # Added for reply_to_general_input
     get_model_from_config,
     get_artifact_content,
     format_artifact_content_with_template,
@@ -29,24 +29,24 @@ from utils.langchain_helpers import ( # Added for reply_to_general_input
     is_using_o1_mini_model,
     # format_reflections, # Needs porting if reflections store is used
 )
-from agents.prompts import CURRENT_ARTIFACT_PROMPT, NO_ARTIFACT_PROMPT # Added
+from app.agents.prompts import CURRENT_ARTIFACT_PROMPT, NO_ARTIFACT_PROMPT # Added
 # Imports for generate_artifact (already present from previous step, ensure they are correctly placed)
-from agents.nodes.generate_artifact_helpers.schemas import ArtifactToolSchema
-from agents.nodes.generate_artifact_helpers.utils import format_new_artifact_prompt, create_artifact_content
-from schemas.common import ArtifactV3, ArtifactType, ArtifactMarkdownV3, ArtifactCodeV3, ProgrammingLanguageOptions, ArtifactType
+from app.agents.nodes.generate_artifact_helpers.schemas import ArtifactToolSchema
+from app.agents.nodes.generate_artifact_helpers.utils import format_new_artifact_prompt, create_artifact_content
+from app.schemas.common import ArtifactV3, ArtifactType, ArtifactMarkdownV3, ArtifactCodeV3, ProgrammingLanguageOptions, ArtifactType
 from app.services.session_service import SessionService # For artifact saving
 import uuid # For artifact saving
 
 # Imports for rewrite_artifact
-from agents.nodes.rewrite_artifact_helpers.schemas import OptionallyUpdateArtifactMetaSchema
-from agents.nodes.rewrite_artifact_helpers.update_meta import optionally_update_artifact_meta
-from agents.nodes.rewrite_artifact_helpers.utils import (
+from app.agents.nodes.rewrite_artifact_helpers.schemas import OptionallyUpdateArtifactMetaSchema
+from app.agents.nodes.rewrite_artifact_helpers.update_meta import optionally_update_artifact_meta
+from app.agents.nodes.rewrite_artifact_helpers.utils import (
     validate_state as validate_rewrite_state,
     build_prompt as build_rewrite_prompt,
     create_new_artifact_content as create_new_rewrite_artifact_content # Aliased
 )
 # from utils.text_processing import is_thinking_model, extract_thinking_and_response_tokens # Added
-from utils.langchain_helpers import get_model_config # ensure get_model_config is available
+from app.utils.langchain_helpers import get_model_config # ensure get_model_config is available
 import uuid # Added for thinking message ID
 
 

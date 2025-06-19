@@ -12,7 +12,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI # Example for later
 # from langchain_community.chat_models import ChatFireworks, ChatGroq # Example for later
 # from langchain_community.chat_models.ollama import ChatOllama # Example for later
 
-from schemas.common import ArtifactV3, ArtifactCodeV3, ArtifactMarkdownV3, ArtifactType, ProgrammingLanguageOptions, SearchResult
+from app.schemas.common import ArtifactV3, ArtifactCodeV3, ArtifactMarkdownV3, ArtifactType, ProgrammingLanguageOptions, SearchResult
 
 
 # --- Constants (Ported from @opencanvas/shared/models.ts) ---

@@ -4,10 +4,10 @@ import json # For robust metadata handling
 from typing import Dict, Any, Optional, AsyncIterator, List
 from app.services.session_service import SessionService # Import SessionService
 # from langgraph.checkpoint.sqlite import SqliteSaver
-from agents.open_canvas import open_canvas_graph_app, OpenCanvasState # Import the compiled app and state type
+from app.agents.open_canvas import open_canvas_graph_app, OpenCanvasState # Import the compiled app and state type
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from schemas.agent import AgentInvokeRequest # For type hinting if directly used
-from config.settings import settings # Import the settings object
+from app.schemas.agent import AgentInvokeRequest # For type hinting if directly used
+from app.config.settings import settings # Import the settings object
 
 # --- Checkpointer Setup ---
 SQLITE_PATH = settings.LANGGRAPH_SQLITE_PATH
