@@ -41,8 +41,12 @@ async def dynamic_determine_path_func(
     # Get last 3 messages from the main conversation history in state
     # These are distinct from newly_processed_messages which might be hidden from UI
     conversation_history = state.get("messages", [])
+    # TODO: Ensure conversation_history is a list of BaseMessage objects and msg.type and msg.content are accessible. 
+    # recent_messages_str = "\n\n".join(
+    #     [f"{msg.type}: {get_string_from_message_content(msg.content)}" for msg in conversation_history[-3:]]
+    # )
     recent_messages_str = "\n\n".join(
-        [f"{msg.type}: {get_string_from_message_content(msg.content)}" for msg in conversation_history[-3:]]
+        [f"{msg}" for msg in conversation_history[-3:]]
     )
 
     current_artifact_for_prompt_str = ""

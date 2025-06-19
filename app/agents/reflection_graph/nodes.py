@@ -3,7 +3,8 @@ import os
 import json # For safely parsing tool call args if they are strings
 from typing import Dict, Any, List, Optional
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage # type: ignore
-from langchain_anthropic import ChatAnthropic
+# from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI # Using Google GenAI as per the latest setup
 
 from .state import ReflectionGraphState
 from .schemas import GenerateReflectionsToolSchema, ReflectionsData
@@ -73,8 +74,8 @@ async def reflect_node_internal(state: ReflectionGraphState, config: Optional[Di
 
     # Using ChatAnthropic as specified. Requires ANTHROPIC_API_KEY environment variable.
     # Temperature 0 for consistent reflection generation.
-    model = ChatAnthropic(
-        model="claude-3-5-sonnet-20240620", # Or other suitable Claude model
+    model = ChatGoogleGenerativeAI(
+        model="gemini-2.5-pro", # Or other suitable Claude model
         temperature=0,
     ).bind_tools([tool_def], tool_choice="generate_reflections") # Force tool call
 

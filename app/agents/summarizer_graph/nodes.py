@@ -2,7 +2,7 @@
 import uuid
 from typing import List, Dict, Any, Optional
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage # type: ignore
-from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI # Importing Google Generative AI for summarization
 
 from agents.summarizer_graph.prompts import SUMMARIZER_PROMPT # Assumes prompts.py is in the same directory
 from agents.summarizer_graph.state import SummarizerGraphState # Import the new state
@@ -33,7 +33,10 @@ async def summarize_messages_node(state: SummarizerGraphState, config: Optional[
 
     # Model selection is hardcoded to Claude Sonnet as per the original TS logic for summarization.
     # Temperature is set low for more factual summarization.
-    model = ChatAnthropic(model="claude-3-5-sonnet-20240620", temperature=0.2)
+    model = ChatGoogleGenerativeAI(
+        model="gemini-2.5-pro", # Or other suitable Claude model
+        temperature=0,
+    )
 
     formatted_messages_str = _format_messages_for_summary(messages_to_summarize)
 
